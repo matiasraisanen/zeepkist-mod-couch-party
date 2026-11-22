@@ -100,6 +100,7 @@ namespace CouchParty
         private static void OnSceneChanged(Scene from, Scene to)
         {
             _sceneName = to.name;
+            if (_sceneName != "GameScene") Plugin.RoundStartTime = -1f;
             Plugin.Debug($"Scene: '{_sceneName}'");
         }
 
@@ -220,7 +221,7 @@ namespace CouchParty
                 var mouse = new Vector2(Input.mousePosition.x / scale, (Screen.height - Input.mousePosition.y) / scale);
                 string focused = GUI.GetNameOfFocusedControl();
                 bool typing = focused == NewNameControl || focused == RenameControl || focused == SearchControl ||
-                              focused == SyncUrlControl || focused == SyncKeyControl;
+                              focused == SyncUrlControl || focused == SyncKeyControl || focused == WipeControl;
                 _blockInput = _open && (_windowRect.Contains(mouse) || typing);
             }
         }
@@ -541,6 +542,7 @@ namespace CouchParty
             if (!string.IsNullOrEmpty(Plugin.ExtraBackupFolder.Value))
                 GUILayout.Label($"Also copied to: {Plugin.ExtraBackupFolder.Value}", _small);
             DrawFlash();
+            DrawStartFresh();
             GUILayout.Space(8);
 
             if (_backupList == null)
@@ -577,6 +579,53 @@ namespace CouchParty
                 GUILayout.EndVertical();
                 GUILayout.Space(3);
             }
+        }
+
+        // ---------------- Start fresh ----------------
+
+        private const string WipeControl = "cp_wipe";
+        private bool _wipeOpen;
+        private bool _wipeProfiles;
+        private string _wipeText = "";
+
+        private void DrawStartFresh()
+        {
+            GUILayout.Space(6);
+            if (!_wipeOpen)
+            {
+                if (GUILayout.Button("Start fresh...", _button, GUILayout.Width(200))) { _wipeOpen = true; _wipeText = ""; _wipeProfiles = false; }
+                return;
+            }
+
+            GUILayout.BeginVertical(_row);
+            GUILayout.Label("Start fresh", _groupHeader);
+            GUILayout.Label("Wipes the data on this PC and, through sync, on every synced PC (including ones that are offline " +
+                            "right now: their old data is dropped the next time they sync). A backup that is kept forever is made first.", _small);
+            if (GUILayout.Toggle(!_wipeProfiles, " Wipe stats and leaderboards, keep profiles", _label)) _wipeProfiles = false;
+            if (GUILayout.Toggle(_wipeProfiles, " Wipe everything, including profiles", _label)) _wipeProfiles = true;
+            GUILayout.Space(4);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Type WIPE to confirm:", _label, GUILayout.Width(260));
+            GUI.SetNextControlName(WipeControl);
+            _wipeText = GUILayout.TextField(_wipeText ?? "", 10, _field, GUILayout.Width(160));
+            GUI.enabled = _wipeText == "WIPE";
+            if (GUILayout.Button(_wipeProfiles ? "Wipe everything" : "Wipe stats & leaderboards", _button))
+            {
+                try
+                {
+                    Store.StartFresh(_wipeProfiles);
+                    Sync.SyncNow(this);
+                    FlashProfiles(_wipeProfiles ? "Everything wiped. A backup was kept." : "Stats and leaderboards wiped. A backup was kept.");
+                }
+                catch (Exception e) { FlashProfiles("Start fresh failed: " + e.Message); }
+                _wipeOpen = false;
+                _backupList = null;
+            }
+            GUI.enabled = true;
+            if (GUILayout.Button("Cancel", _button, GUILayout.Width(110))) _wipeOpen = false;
+            GUILayout.EndHorizontal();
+            GUILayout.Label("The server keeps its own history of old versions in data/history/; delete those files there if you want them gone too.", _small);
+            GUILayout.EndVertical();
         }
 
         private void FlashProfiles(string message)
@@ -751,7 +800,7 @@ namespace CouchParty
             StatRow("Wheels knocked off", st.WheelsKnockedOff);
             GUILayout.Space(8);
             StatGroup("Cats");
-            StatRow("Cats petted", st.CatsPetted);
+            StatRow("Cats hugged", st.CatsHugged);
             StatRow("Crashes caused by cats", st.CatCrashes);
             GUILayout.EndVertical();
 
@@ -847,10 +896,10 @@ namespace CouchParty
                 ("Stuntman", "Most finishes on foot, after ejecting from the car", p => p.Stats.OnFootFinishes, v => $"{v:0} on foot finishes"),
                 ("Shortcut hunter", "Crossed the finish but missed checkpoints most often", p => p.Stats.Shortcuts, v => $"{v:0} tries"),
                 ("Bumper car champ", "Drove into other racers the most", p => p.Stats.Rams, v => $"{v:0} rams"),
-                ("Demolition derby", "Most knockouts: a racer crashed, fell off or had to respawn after bumping into them", p => p.Stats.Knockouts, v => $"{v:0} knockouts"),
+                ("Demolition derby", "Most knockouts: a racer crashed or didn't finish soon after bumping into them", p => p.Stats.Knockouts, v => $"{v:0} knockouts"),
                 ("Wheel snatcher", "Knocked the most wheels off other racers", p => p.Stats.WheelsKnockedOff, v => $"{v:0} wheels"),
                 ("Punching bag", "Got rammed by other racers the most", p => p.Stats.GotRammed, v => $"{v:0} times"),
-                ("Cat lover", "Petted the most walking cats (with their car)", p => p.Stats.CatsPetted, v => $"{v:0} cats"),
+                ("Cat lover", "Hugged the most walking cats (with their car)", p => p.Stats.CatsHugged, v => $"{v:0} cats"),
                 ("Cat's revenge", "Crashed the most after hitting a cat", p => p.Stats.CatCrashes, v => $"{v:0} crashes"),
             };
 
@@ -1001,18 +1050,17 @@ namespace CouchParty
 
         // ---------------- Overlays ----------------
 
-        // The game's results screen, measured in 1080p units relative to the screen centre (16:9).
-        private const float GameColumnLeft = -768f;  // left edge of the "Race Results" column
-        private const float GameColumnRight = 151f;  // divider between "Race Results" and "Championship"
-        private const float GameColumnTop = 238f;
-        private const float GameColumnBottom = 843f;
+        // The game's results panel is laid out as fractions of the screen (measured on 16:9 and 21:9,
+        // identical on both), so the "Race Results" column is found the same way on any screen shape.
+        private const float GameColumnLeft = 0.100f;    // left edge of the "Race Results" column (of screen width)
+        private const float GameColumnRight = 0.5785f;  // divider between "Race Results" and "Championship"
+        private const float GameColumnTop = 0.2204f;    // below the header (of screen height)
+        private const float GameColumnBottom = 0.7804f; // above the Retry / Continue bar
 
         private void DrawResults(float vw, float vh)
         {
             TryLoadGameFont();
-            float cx = vw / 2f;
-            var area = new Rect(cx + GameColumnLeft, GameColumnTop, GameColumnRight - GameColumnLeft, GameColumnBottom - GameColumnTop);
-            if (area.x < 8) { area.width -= 8 - area.x; area.x = 8; }
+            var area = Rect.MinMaxRect(vw * GameColumnLeft, vh * GameColumnTop, vw * GameColumnRight, vh * GameColumnBottom);
 
             GUI.DrawTexture(area, _texBody);
 

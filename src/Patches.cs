@@ -98,6 +98,7 @@ namespace CouchParty
                 if (count == 0) return; // maybe too early; a later hook can try again
 
                 Plugin.RecordedThisRound = true;
+                Plugin.RoundStartTime = -1f; // round over: debug lines say "no race" again
                 var summary = Game.RecordRace(gm);
                 StatsTracker.CommitRace(summary);
                 if (summary != null)

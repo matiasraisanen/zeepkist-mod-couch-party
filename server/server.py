@@ -108,6 +108,9 @@ def key_name(token: str):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "CouchPartySync/1"
+    # HTTP/1.1 so "Expect: 100-continue" uploads get their go-ahead (Unity and Apache use it);
+    # with HTTP/1.0 the client waits for the go-ahead while the server waits for the data.
+    protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):
         sys.stdout.write("%s %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), fmt % args))
@@ -144,6 +147,25 @@ class Handler(BaseHTTPRequestHandler):
             self.error(401, "unknown key")
         return name
 
+    def read_body(self):
+        """Request body, sent with Content-Length or in chunks. None if missing or too large."""
+        if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+            data = bytearray()
+            while True:
+                size = int(self.rfile.readline().split(b";")[0].strip() or b"0", 16)
+                if size == 0:
+                    self.rfile.readline()  # blank line after the last chunk
+                    break
+                data += self.rfile.read(size)
+                self.rfile.readline()  # CRLF after each chunk
+                if len(data) > MAX_BODY:
+                    return None
+            return bytes(data) or None
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        if length <= 0 or length > MAX_BODY:
+            return None
+        return self.rfile.read(length)
+
     def do_GET(self):
         route = self.route()
         if route == "/api/health":
@@ -165,10 +187,10 @@ class Handler(BaseHTTPRequestHandler):
         who = self.authorize()
         if who is None:
             return
-        length = int(self.headers.get("Content-Length", "0") or "0")
-        if length <= 0 or length > MAX_BODY:
+        body = self.read_body()
+        if body is None:
             return self.error(413, "body missing or too large")
-        body = self.rfile.read(length)
+        length = len(body)
         try:
             doc = json.loads(body)
             if not isinstance(doc, dict) or "Profiles" not in doc or "Leaderboard" not in doc:

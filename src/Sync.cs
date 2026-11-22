@@ -16,6 +16,12 @@ namespace CouchParty
         public List<Profile> Profiles { get; set; } = new List<Profile>();
         public LeaderboardData Leaderboard { get; set; } = new LeaderboardData();
 
+        /// <summary>Last "Start fresh" (UTC). Older stats, runs and race counts are dropped when merging.</summary>
+        public DateTime SeasonStart { get; set; }
+
+        /// <summary>Last "Start fresh" that wiped profiles (UTC). Profiles not changed since are dropped.</summary>
+        public DateTime ProfilesWipedAt { get; set; }
+
         private static readonly JsonSerializerSettings Settings = new JsonSerializerSettings
         {
             NullValueHandling = NullValueHandling.Ignore,
@@ -102,11 +108,12 @@ namespace CouchParty
                     string etag;
                     using (var get = Request("GET"))
                     {
+                        _stepStarted = Time.unscaledTime;
                         yield return get.SendWebRequest();
                         if (get.responseCode == 404) etag = "\"0\""; // nothing stored yet
                         else if (get.result != UnityWebRequest.Result.Success)
                         {
-                            Fail(get);
+                            Fail(get, "download");
                             yield break;
                         }
                         else
@@ -141,6 +148,7 @@ namespace CouchParty
                     }
                     using (var put = Request("PUT", mergedJson, etag))
                     {
+                        _stepStarted = Time.unscaledTime;
                         yield return put.SendWebRequest();
                         if (put.responseCode == 409 || put.responseCode == 412)
                         {
@@ -149,7 +157,7 @@ namespace CouchParty
                         }
                         if (put.result != UnityWebRequest.Result.Success)
                         {
-                            Fail(put);
+                            Fail(put, $"upload ({mergedJson.Length / 1024} KB)");
                             yield break;
                         }
                     }
@@ -172,11 +180,16 @@ namespace CouchParty
             Plugin.Log.LogInfo($"Sync: {result}.");
         }
 
-        private static void Fail(UnityWebRequest req)
+        private static float _stepStarted;
+
+        private static void Fail(UnityWebRequest req, string step)
         {
+            float waited = Time.unscaledTime - _stepStarted;
             LastError = req.responseCode == 401 || req.responseCode == 403
                 ? "The server didn't accept the key."
-                : req.responseCode > 0 ? $"Server answered {req.responseCode}: {req.error}" : $"Couldn't reach the server ({req.error}).";
+                : req.responseCode > 0 ? $"{step} failed: server answered {req.responseCode} ({req.error})"
+                : $"{step} failed after {waited:0.0} s: {req.error}";
+            Plugin.Log.LogWarning($"Sync {step} to {req.url} failed after {waited:0.0} s: code {req.responseCode}, {req.error}");
         }
 
         // ---------------- Merge ----------------
@@ -186,15 +199,27 @@ namespace CouchParty
         {
             a = SyncDoc.Clone(a);
             b = SyncDoc.Clone(b);
+            // "Start fresh": the newest wipe wins and everything from before it is dropped, on both sides.
+            var season = a.SeasonStart > b.SeasonStart ? a.SeasonStart : b.SeasonStart;
+            var profilesWiped = a.ProfilesWipedAt > b.ProfilesWipedAt ? a.ProfilesWipedAt : b.ProfilesWipedAt;
             return new SyncDoc
             {
-                Profiles = MergeProfiles(a.Profiles, b.Profiles),
-                Leaderboard = MergeLeaderboards(a.Leaderboard, b.Leaderboard),
+                Profiles = MergeProfiles(a.Profiles.Where(p => p.Modified >= profilesWiped).ToList(),
+                                         b.Profiles.Where(p => p.Modified >= profilesWiped).ToList(), season),
+                Leaderboard = MergeLeaderboards(a.Leaderboard, b.Leaderboard, season),
+                SeasonStart = season,
+                ProfilesWipedAt = profilesWiped,
             };
         }
 
-        private static List<Profile> MergeProfiles(List<Profile> a, List<Profile> b)
+        private static List<Profile> MergeProfiles(List<Profile> a, List<Profile> b, DateTime season)
         {
+            // Stats from an older season don't survive.
+            foreach (var p in a.Concat(b))
+                if (p.StatsByMachine != null)
+                    foreach (var key in p.StatsByMachine.Where(kv => kv.Value == null || kv.Value.Season < season).Select(kv => kv.Key).ToList())
+                        p.StatsByMachine.Remove(key);
+
             var result = new List<Profile>();
             var bById = b.ToDictionary(p => p.Id);
             foreach (var id in a.Select(p => p.Id).Concat(b.Select(p => p.Id)).Distinct())
@@ -222,7 +247,7 @@ namespace CouchParty
             return result;
         }
 
-        private static LeaderboardData MergeLeaderboards(LeaderboardData a, LeaderboardData b)
+        private static LeaderboardData MergeLeaderboards(LeaderboardData a, LeaderboardData b, DateTime season)
         {
             var result = new LeaderboardData
             {
@@ -230,7 +255,7 @@ namespace CouchParty
                 ClearedLevels = new Dictionary<string, DateTime>(),
             };
             foreach (var kv in (a.ClearedLevels ?? new Dictionary<string, DateTime>()).Concat(b.ClearedLevels ?? new Dictionary<string, DateTime>()))
-                if (!result.ClearedLevels.TryGetValue(kv.Key, out var t) || kv.Value > t) result.ClearedLevels[kv.Key] = kv.Value;
+                if (kv.Value >= season && (!result.ClearedLevels.TryGetValue(kv.Key, out var t) || kv.Value > t)) result.ClearedLevels[kv.Key] = kv.Value;
 
             var keys = a.Levels.Keys.Concat(b.Levels.Keys).Distinct();
             foreach (var key in keys)
@@ -248,17 +273,24 @@ namespace CouchParty
                 // Cleared by hand and not played since: stays gone.
                 if (result.ClearedLevels.TryGetValue(key, out var cleared) && level.LastPlayed.ToUniversalTime() <= cleared) continue;
 
-                // Races per machine: each machine only counts up, so the higher number is the newest.
-                foreach (var kv in (la?.RacesByMachine ?? new Dictionary<string, int>()).Concat(lb?.RacesByMachine ?? new Dictionary<string, int>()))
-                    if (!level.RacesByMachine.TryGetValue(kv.Key, out var n) || kv.Value > n) level.RacesByMachine[kv.Key] = kv.Value;
+                // Races per machine (this season only): each machine only counts up, so the higher number is the newest.
+                level.Season = season;
+                foreach (var side in new[] { la, lb })
+                {
+                    if (side?.RacesByMachine == null || side.Season < season) continue;
+                    foreach (var kv in side.RacesByMachine)
+                        if (!level.RacesByMachine.TryGetValue(kv.Key, out var n) || kv.Value > n) level.RacesByMachine[kv.Key] = kv.Value;
+                }
 
-                // Runs: everything from both sides, once, minus removed ones; keep the fastest MaxRuns.
+                // Runs: everything from both sides (this season), once, minus removed ones; keep the fastest MaxRuns.
                 level.Runs = (la?.Runs ?? new List<RunRecord>()).Concat(lb?.Runs ?? new List<RunRecord>())
-                    .Where(r => r != null && !result.DeletedRunIds.Contains(r.Id))
+                    .Where(r => r != null && !result.DeletedRunIds.Contains(r.Id) && r.Date.ToUniversalTime() >= season)
                     .GroupBy(r => r.Id).Select(g => g.First())
                     .OrderBy(r => r.Time).Take(LevelRecords.MaxRuns).ToList();
                 level.Best = (la ?? lb).Best ?? new Dictionary<string, BestTime>();
                 level.RebuildBest();
+                // Nothing left of a map from before the wipe: drop it.
+                if (level.Runs.Count == 0 && level.RacesPlayed == 0 && level.LastPlayed.ToUniversalTime() < season) continue;
                 result.Levels[key] = level;
             }
             return result;

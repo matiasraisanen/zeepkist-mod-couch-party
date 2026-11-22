@@ -53,11 +53,54 @@ Requires **ZeepSDK** (Modkist installs it together with BepInEx).
 
 6. **Leaderboard tab:** every map, with the same "Best per player" / "All runs" switch. **x** removes one time (or all of a player's times in the per-player view).
 7. **Stats tab:** pick a player to see their stats in groups (Racing, Records, Carnage, Driving) with a win-rate bar.
-8. **Hall of Fame tab:** the top 3 (gold, silver, bronze) in each category: wins, win rate (3+ races), records held/broken, PBs, top speed, distance, air time (Frequent flyer), longest jump (Moon landing), crashes, wheels lost, finishes missing wheels, no-wheel finishes, on foot finishes (Stuntman), shortcut tries, rams (Bumper car champ), knockouts (Demolition derby), wheels knocked off (Wheel snatcher), got rammed (Punching bag), cats petted (Cat lover), crashes caused by cats (Cat's revenge).
+8. **Hall of Fame tab:** the top 3 (gold, silver, bronze) in each category: wins, win rate (3+ races), records held/broken, PBs, top speed, distance, air time (Frequent flyer), longest jump (Moon landing), crashes, wheels lost, finishes missing wheels, no-wheel finishes, on foot finishes (Stuntman), shortcut tries, rams (Bumper car champ), knockouts (Demolition derby), wheels knocked off (Wheel snatcher), got rammed (Punching bag), cats hugged (Cat lover), crashes caused by cats (Cat's revenge).
 
-Stats tracked: lifetime stats per profile (races, wins and win %, finishes, DNFs, shortcut tries, personal bests, map records broken and held, crashes, wheels lost, finishes on 3 / 2 / 1 / 0 wheels, on foot finishes (ejected, then crossed the line without the car), bumps with other racers, rams, got rammed, knockouts (after bumping into you, someone crashed, fell off the map or had to respawn before getting back on track), wheels knocked off (another racer lost a wheel right after bumping into you), cats petted (walking cats hit by your car), crashes caused by cats, distance driven, top speed, air time (total, longest jump, big jumps of 1 s+), total time on the clock).
+Stats tracked: lifetime stats per profile (races, wins and win %, finishes, DNFs, shortcut tries, personal bests, map records broken and held, crashes, wheels lost, finishes on 3 / 2 / 1 / 0 wheels, on foot finishes (ejected, then crossed the line without the car), bumps with other racers, rams, got rammed, knockouts (someone crashed or didn't finish soon after bumping into you), wheels knocked off (another racer lost a wheel right after bumping into you), cats hugged (walking cats hit by your car), crashes caused by cats, distance driven, top speed, air time (total, longest jump, big jumps of 1 s+), total time on the clock).
 
 Leaderboard entries are linked to the profile, not the name, so renaming a profile renames all their old records too.
+
+## How the stats are counted
+
+All stats come from local multiplayer races and only for players with a profile.
+
+**Race results**
+- **Finish:** crossing the line with every checkpoint. Only these times go on the leaderboard.
+- **Shortcut try:** crossing the line with a checkpoint missed. Shown on the results screen, not saved.
+- **DNF:** not crossing the line at all.
+- **Win:** the fastest valid finish in a race with 2 or more players.
+- **On foot finish:** a valid finish where you had already ejected (pressed Y) and your character crossed the line without the car.
+- **3, 2, 1 and no-wheel finishes:** a valid finish with that many wheels still on the car.
+
+**Crashes and wheels**
+- **Crash:** your character dies before you finish, whether you hit something, landed badly or ejected. Ejecting counts as a crash.
+- **Wheels lost:** each wheel that breaks off before you finish.
+
+**Bumps**
+- **Bump:** your car (body or wheels) hits another racer's car or character at an impact of at least about 11 km/h. The same two players can only score one bump per second, so a long scrape counts once.
+- **Ram / got rammed:** whoever was moving towards the other car faster just before the hit gets the ram; the other gets "got rammed". In a rear-end hit, the car behind is the rammer.
+
+**Knockouts**
+
+After a bump, both players are "marked" for a short while, each with the other as the possible culprit (a new bump replaces the culprit). If a marked player **crashes**, or **doesn't finish the race** at all, the other player gets a **knockout**.
+
+How long the mark lasts:
+- **Staying on the wheels** (a pit manoeuvre, a shove): **4 seconds**. A crash within 4 seconds of the hit counts.
+- **Knocked into the air:** until they've been back on the ground for a full second. A crash at the end of a long jump still counts.
+- **Never longer than 15 seconds.** Someone pushed off the map who never comes back is out of the race anyway, so they don't finish and that counts too.
+- **Crossing the finish line** clears the mark.
+
+It doesn't matter who rammed whom: if you ram someone and *you* end up crashing, *they* get the knockout.
+
+- **Wheels knocked off:** a wheel that breaks off within 1 second of a bump counts for the other player.
+
+**Cats**
+- **Cat hugged:** your car hits one of the walking cats at about 4 km/h or more. Each cat counts once per 2 seconds.
+- **Crash caused by a cat:** you crash soon after hitting a cat, using the same timing as knockouts: within 4 seconds if you stay on your wheels, longer if the cat sent you flying (up to 15 seconds).
+
+**Driving**
+- **Distance:** how far your car moves while racing (not after crashing or finishing).
+- **Top speed:** your car's highest speed in km/h.
+- **Air time / longest jump:** time with no wheel and no part of the car touching anything. Hops under 0.3 seconds don't count. **Big jumps** are 1 second or more.
 
 ## Sync between PCs
 
@@ -85,6 +128,8 @@ Your profiles, stats and leaderboards are backed up automatically. Open **F8 →
 - **Unreadable files:** if a data file can't be read, the mod sets it aside as `*.unreadable-<date>.json` instead of overwriting it, and warns you in the game.
 - **Extra copy:** set `Extra backup folder` in the config (e.g. a OneDrive folder) to keep a second copy of every backup.
 
+**Start fresh** (F8 → Backups → Start fresh…) wipes stats and leaderboards, or everything including profiles, on every synced PC. A PC that was offline at the time drops its old data the next time it syncs, instead of uploading it again. A backup that's kept forever is made first. You confirm by typing `WIPE`. Old versions in the server's `data/history/` folder stay until you delete them there.
+
 **Deleting a profile** moves it to an archive. If you add the same player again later (the same Steam friend, or the same name for typed profiles), their records and stats come back.
 
 Notes:
@@ -103,7 +148,7 @@ Notes:
 
 Send `BepInEx\LogOutput.log` afterwards. The mod writes `[debug]` lines into it.
 
-- [ ] The log says `Couch Party 0.8.0 loaded`.
+- [ ] The log says `Couch Party 0.9.0 loaded`.
 - [ ] The top-3 popup appears for a few seconds when a race starts, then fades. It doesn't appear on the player-select screen.
 - [ ] F9 during a race shows it again for a few seconds.
 - [ ] Beating the map record shows "NEW MAP RECORD!" right after crossing the finish (or at the latest on the results screen).

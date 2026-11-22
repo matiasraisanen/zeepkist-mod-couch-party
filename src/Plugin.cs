@@ -16,7 +16,7 @@ namespace CouchParty
     {
         public const string Guid = "com.skofdo.couchparty";
         public const string Name = "Couch Party";
-        public const string Version = "0.8.0";
+        public const string Version = "0.9.0";
 
         internal static ManualLogSource Log;
 
@@ -144,7 +144,11 @@ namespace CouchParty
             if (ShowPreRacePopup.Value) CouchUI.Instance?.ShowPreRace();
         }
 
-        private void OnQuit() => StatsTracker.OnQuit();
+        private void OnQuit()
+        {
+            RoundStartTime = -1f;
+            StatsTracker.OnQuit();
+        }
 
         private void OnCrossedFinishLine(float time)
         {

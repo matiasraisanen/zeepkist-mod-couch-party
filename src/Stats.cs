@@ -38,7 +38,7 @@ namespace CouchParty
             public int LastHitBy = -1;
             public float LastHitTime;
             public int WheelsKnockedOff;
-            public int CatsPetted;
+            public int CatsHugged;
             public int CatCrashes;
             public bool CatArmed;        // hit a cat and not safely back on the ground yet
             public float CatHitTime;
@@ -65,9 +65,9 @@ namespace CouchParty
         private const float MinBumpSpeed = 3f;
         /// <summary>One bump per pair of players per this many seconds (no counting a long scrape many times).</summary>
         private const float BumpCooldown = 1f;
-        /// <summary>After a bump, ignore ground contact this long (bouncing around isn't "recovered").</summary>
-        private const float KnockoutWindow = 2f;
-        /// <summary>Back on the ground this long (after the window) clears a possible knockout.</summary>
+        /// <summary>A crash within this long after a bump (or cat hit) counts, if they stay on their wheels.</summary>
+        private const float KnockoutWindow = 4f;
+        /// <summary>After the window, they must have been on the ground this long to be "recovered" (longer if they're in the air).</summary>
         private const float RecoveredAfter = 1f;
         /// <summary>A possible knockout expires after this long no matter what.</summary>
         private const float MaxKnockoutSeconds = 15f;
@@ -80,7 +80,7 @@ namespace CouchParty
         private static readonly Dictionary<(int, int), float> CatLastHit = new Dictionary<(int, int), float>();
         private const float CatHitCooldown = 2f;
 
-        /// <summary>Teleports (respawns) bigger than this per frame are not counted as driving.</summary>
+        /// <summary>Jumps in position bigger than this per frame (e.g. a reset) are not counted as driving.</summary>
         private const float MaxStepMeters = 25f;
 
         private static readonly Dictionary<int, Live> Slots = new Dictionary<int, Live>();
@@ -189,7 +189,7 @@ namespace CouchParty
                 case 1: st.OneWheelFinishes++; break;
                 case 0: st.ZeroWheelFinishes++; break;
             }
-            Plugin.Debug($"Finish on {live.WheelsAtFinish} wheel(s).");
+            if (live.WheelsAtFinish < 4) Plugin.Debug($"Player {live.Slot + 1} finished on {live.WheelsAtFinish} wheel(s)!");
         }
 
         private static void AddLive(PlayerStats st, Live live)
@@ -203,9 +203,9 @@ namespace CouchParty
             st.GotRammed += live.GotRammed;
             st.Knockouts += live.Knockouts;
             st.WheelsKnockedOff += live.WheelsKnockedOff;
-            st.CatsPetted += live.CatsPetted;
+            st.CatsHugged += live.CatsHugged;
             st.CatCrashes += live.CatCrashes;
-            live.CatsPetted = live.CatCrashes = 0;
+            live.CatsHugged = live.CatCrashes = 0;
             st.AirSeconds += live.Air;
             st.LongestJumpSeconds = Mathf.Max(st.LongestJumpSeconds, live.LongestJump);
             st.BigJumps += live.BigJumps;
@@ -348,10 +348,10 @@ namespace CouchParty
             if (CatLastHit.TryGetValue(key, out float last) && now - last < CatHitCooldown) return;
             CatLastHit[key] = now;
 
-            live.CatsPetted++;
+            live.CatsHugged++;
             live.CatArmed = true;
             live.CatHitTime = now;
-            Plugin.Debug($"Cat petted by Player {slot + 1} at {collision.relativeVelocity.magnitude * 3.6f:0} km/h!");
+            Plugin.Debug($"Cat #{cat.GetInstanceID()} hugged by Player {slot + 1} at {collision.relativeVelocity.magnitude * 3.6f:0} km/h!");
         }
 
         /// <summary>Car body is touching something (OnCollisionStay). Only the track/scenery counts as ground.</summary>
@@ -390,6 +390,7 @@ namespace CouchParty
             if (dead && !live.WasDead && !finished)
             {
                 live.Crashes++;
+                Plugin.Debug($"Player {live.Slot + 1} crashed.");
                 if (live.KoArmed) CreditKnockout(live, "crashed");
                 if (live.CatArmed)
                 {
@@ -429,13 +430,13 @@ namespace CouchParty
 
             if (live.CatArmed && !finished)
             {
-                bool recovered = grounded && now - live.CatHitTime > KnockoutWindow && now - live.GroundedSince >= RecoveredAfter;
+                bool recovered = grounded && now - live.CatHitTime >= KnockoutWindow && now - live.GroundedSince >= RecoveredAfter;
                 if (recovered || now - live.CatHitTime > MaxKnockoutSeconds) live.CatArmed = false;
             }
 
             if (live.KoArmed && !finished)
             {
-                bool recovered = grounded && now - live.LastHitTime > KnockoutWindow && now - live.GroundedSince >= RecoveredAfter;
+                bool recovered = grounded && now - live.LastHitTime >= KnockoutWindow && now - live.GroundedSince >= RecoveredAfter;
                 if (recovered || now - live.LastHitTime > MaxKnockoutSeconds) live.KoArmed = false;
             }
             if (live.Body != null) live.LastVelocity = live.Body.velocity;
@@ -474,9 +475,6 @@ namespace CouchParty
             Transform t = live.Body != null ? live.Body.transform : live.Car != null ? live.Car.transform : null;
             if (t == null) return;
             var pos = t.position;
-            if (!finished && live.LastPos.HasValue && live.KoArmed &&
-                Vector3.Distance(pos, live.LastPos.Value) >= MaxStepMeters)
-                CreditKnockout(live, "had to respawn");
             if (!finished && !dead && live.LastPos.HasValue)
             {
                 float step = Vector3.Distance(pos, live.LastPos.Value);

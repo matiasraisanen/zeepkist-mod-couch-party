@@ -44,8 +44,8 @@ namespace CouchParty
             get
             {
                 if (StatsByMachine == null) StatsByMachine = new Dictionary<string, PlayerStats>();
-                if (!StatsByMachine.TryGetValue(Store.MachineId, out var st))
-                    StatsByMachine[Store.MachineId] = st = new PlayerStats();
+                if (!StatsByMachine.TryGetValue(Store.MachineId, out var st) || st.Season < Store.SeasonStart)
+                    StatsByMachine[Store.MachineId] = st = new PlayerStats { Season = Store.SeasonStart };
                 return st;
             }
         }
@@ -110,9 +110,9 @@ namespace CouchParty
         public int Bumps { get; set; }
         public int Rams { get; set; }        // you drove into them
         public int GotRammed { get; set; }   // they drove into you
-        public int Knockouts { get; set; }   // someone crashed, fell off or respawned after bumping into you
+        public int Knockouts { get; set; }   // someone crashed or didn't finish soon after bumping into you
         public int WheelsKnockedOff { get; set; } // wheels other racers lost right after bumping into you
-        public int CatsPetted { get; set; }        // walking cats hit by your car
+        public int CatsHugged { get; set; }        // walking cats hit by your car
         public int CatCrashes { get; set; }        // crashed after hitting a cat, before getting back on track
 
         // Air time: no wheel and no part of the car body touching anything (while racing).
@@ -122,6 +122,9 @@ namespace CouchParty
 
         /// <summary>When this entry last changed (UTC).</summary>
         public DateTime Updated { get; set; }
+
+        /// <summary>Season (Start fresh time, UTC) this entry belongs to; entries from older seasons are dropped.</summary>
+        public DateTime Season { get; set; }
 
         [JsonIgnore]
         public int DamagedFinishes => ThreeWheelFinishes + TwoWheelFinishes + OneWheelFinishes + ZeroWheelFinishes;
@@ -142,7 +145,7 @@ namespace CouchParty
                 t.OnFootFinishes += s.OnFootFinishes;
                 t.Bumps += s.Bumps; t.Rams += s.Rams; t.GotRammed += s.GotRammed; t.Knockouts += s.Knockouts;
                 t.WheelsKnockedOff += s.WheelsKnockedOff;
-                t.CatsPetted += s.CatsPetted;
+                t.CatsHugged += s.CatsHugged;
                 t.CatCrashes += s.CatCrashes;
                 t.AirSeconds += s.AirSeconds; t.LongestJumpSeconds = Math.Max(t.LongestJumpSeconds, s.LongestJumpSeconds);
                 t.BigJumps += s.BigJumps;
@@ -161,6 +164,12 @@ namespace CouchParty
 
         /// <summary>Deleted profiles, kept so re-adding the same player restores their records and stats.</summary>
         public List<Profile> Archived { get; set; } = new List<Profile>();
+
+        /// <summary>Last "Start fresh" (UTC): stats and leaderboard data from before it are dropped, on every synced PC.</summary>
+        public DateTime SeasonStart { get; set; }
+
+        /// <summary>Last "Start fresh" that also wiped profiles (UTC): profiles not changed since then are dropped.</summary>
+        public DateTime ProfilesWipedAt { get; set; }
     }
 
     /// <summary>One profile's best time on one map.</summary>
@@ -185,9 +194,16 @@ namespace CouchParty
         [JsonIgnore]
         public int RacesPlayed => RacesByMachine?.Values.Sum() ?? 0;
 
+        /// <summary>Season the race counts belong to (they restart in a new season).</summary>
+        public DateTime Season { get; set; }
+
         public void AddRace()
         {
-            if (RacesByMachine == null) RacesByMachine = new Dictionary<string, int>();
+            if (RacesByMachine == null || Season < Store.SeasonStart)
+            {
+                RacesByMachine = new Dictionary<string, int>();
+                Season = Store.SeasonStart;
+            }
             RacesByMachine.TryGetValue(Store.MachineId, out int n);
             RacesByMachine[Store.MachineId] = n + 1;
         }
@@ -336,6 +352,9 @@ namespace CouchParty
                 return _machineId;
             }
         }
+
+        /// <summary>Start of the current season (last "Start fresh"), UTC.</summary>
+        public static DateTime SeasonStart => Profiles?.SeasonStart ?? default;
 
         /// <summary>Bumped whenever stats change, so cached totals are recalculated.</summary>
         public static int StatsGeneration { get; private set; }
@@ -490,6 +509,35 @@ namespace CouchParty
             SaveProfiles();
         }
 
+        /// <summary>
+        /// Starts a new season: wipes all stats and leaderboards (and with <paramref name="profilesToo"/> all profiles),
+        /// on this PC and, through sync, on every other PC. A backup that is kept forever is made first.
+        /// </summary>
+        public static void StartFresh(bool profilesToo)
+        {
+            Backups.Create(profilesToo ? "before wiping everything" : "before start fresh", keep: true, force: true);
+            var now = DateTime.UtcNow;
+            Profiles.SeasonStart = now;
+            foreach (var p in Profiles.Profiles.Concat(Profiles.Archived))
+            {
+                p.StatsByMachine.Clear();
+                p.StatsResetAt = now;
+            }
+            if (profilesToo)
+            {
+                Profiles.ProfilesWipedAt = now;
+                Profiles.Profiles.Clear();
+                Profiles.Archived.Clear();
+                for (int i = 0; i < 4; i++) Profiles.SlotProfileIds[i] = null;
+            }
+            Leaderboard = new LeaderboardData();
+            StatsChanged();
+            SaveProfiles();
+            SaveLeaderboard();
+            Game.ApplyNames();
+            Plugin.Log.LogInfo(profilesToo ? "Started fresh: everything wiped." : "Started fresh: stats and leaderboards wiped.");
+        }
+
         /// <summary>Clears every profile's stats on all machines (the reset time travels with sync).</summary>
         public static void ResetAllStats()
         {
@@ -509,6 +557,8 @@ namespace CouchParty
         {
             Profiles = Profiles.Profiles.Concat(Profiles.Archived).ToList(),
             Leaderboard = Leaderboard,
+            SeasonStart = Profiles.SeasonStart,
+            ProfilesWipedAt = Profiles.ProfilesWipedAt,
         });
 
         /// <summary>Takes merged data. Player 1-4 assignments and outfits stay as they are on this PC.</summary>
@@ -531,6 +581,8 @@ namespace CouchParty
             }
             Profiles.Profiles = doc.Profiles.Where(p => !p.IsArchived).ToList();
             Profiles.Archived = doc.Profiles.Where(p => p.IsArchived).ToList();
+            Profiles.SeasonStart = doc.SeasonStart;
+            Profiles.ProfilesWipedAt = doc.ProfilesWipedAt;
             for (int i = 0; i < 4; i++)
                 if (GetProfile(Profiles.SlotProfileIds[i]) == null) Profiles.SlotProfileIds[i] = null;
             Leaderboard = doc.Leaderboard;
