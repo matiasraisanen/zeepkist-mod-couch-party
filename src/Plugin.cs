@@ -16,7 +16,7 @@ namespace CouchParty
     {
         public const string Guid = "com.skofdo.couchparty";
         public const string Name = "Couch Party";
-        public const string Version = "0.9.0";
+        public const string Version = "0.9.3";
 
         internal static ManualLogSource Log;
 
@@ -88,6 +88,10 @@ namespace CouchParty
                     typeof(Patch_CreateCharacter_OnEnable),
                     typeof(Patch_PlayerManager_UpdatePlayerNames),
                     typeof(Patch_GameMaster_SpawnPlayers),
+                    typeof(Patch_ReadyToReset_TimeOut),
+                    typeof(Patch_ReadyToReset_ExternalKill),
+                    typeof(Patch_ReadyToReset_DeadResults),
+                    typeof(Patch_DamageCharacter_Kill),
                     typeof(Patch_RaceResultsUI_OnOpen),
                     typeof(Patch_GameMaster_OpenResultScreen),
                     typeof(Patch_GameMaster_GetResults2),

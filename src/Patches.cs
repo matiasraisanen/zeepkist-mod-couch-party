@@ -62,6 +62,36 @@ namespace CouchParty
         private static void Postfix() => Game.ApplyNames();
     }
 
+    /// <summary>The game times a player out (too slow for 10 seconds): logged; counts as a crash.</summary>
+    [HarmonyPatch(typeof(ReadyToReset), nameof(ReadyToReset.SetLocalTimeOutResults))]
+    internal static class Patch_ReadyToReset_TimeOut
+    {
+        private static void Prefix(object __instance) => StatsTracker.MarkOut(__instance, "timed out");
+    }
+
+    /// <summary>The game removes a player from the race from outside: logged; counts as a crash.</summary>
+    [HarmonyPatch(typeof(ReadyToReset), nameof(ReadyToReset.ExternalKill))]
+    internal static class Patch_ReadyToReset_ExternalKill
+    {
+        private static void Prefix(object __instance) => StatsTracker.MarkOut(__instance, "removed by the game");
+    }
+
+    /// <summary>The game records why a player died (crashed, kill block, ...): log it.</summary>
+    [HarmonyPatch(typeof(ReadyToReset), nameof(ReadyToReset.SetLocalDeadResults))]
+    internal static class Patch_ReadyToReset_DeadResults
+    {
+        private static void Prefix(object __instance, string deathReason_TranslationKey) =>
+            StatsTracker.NoteDeathReason(__instance, deathReason_TranslationKey);
+    }
+
+    /// <summary>Every character kill: log who asked (tells ejects apart from hard crashes).</summary>
+    [HarmonyPatch(typeof(DamageCharacterScript), nameof(DamageCharacterScript.KillCharacter))]
+    internal static class Patch_DamageCharacter_Kill
+    {
+        private static void Prefix(object __instance, bool forceKill, string caller, DamageCharacterScript.DeathReasonEnum deathReason) =>
+            StatsTracker.NoteKill(__instance, forceKill, caller, deathReason.ToString());
+    }
+
     /// <summary>Right before the cars spawn, make sure the names are ours.</summary>
     [HarmonyPatch(typeof(GameMaster), nameof(GameMaster.SpawnPlayers))]
     internal static class Patch_GameMaster_SpawnPlayers

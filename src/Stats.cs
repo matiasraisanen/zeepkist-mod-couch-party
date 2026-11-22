@@ -28,7 +28,7 @@ namespace CouchParty
             public bool DeadAtFinish;       // character had ejected/crashed when crossing the finish
             public Vector3? LastPos;
 
-            public int Crashes, WheelsLost;
+            public int Crashes, Ejects, Timeouts, WheelsLost;
             public double Distance;
             public float TopSpeed;
 
@@ -41,6 +41,10 @@ namespace CouchParty
             public int CatsHugged;
             public int CatCrashes;
             public bool CatArmed;        // hit a cat and not safely back on the ground yet
+            public string DeathReason;   // from the game, e.g. "Gameplay_Crashed"
+            public string OutReason;     // the game took them out (timeout)
+            public string KillCaller;    // what the game said when killing the character (tells ejects from crashes)
+            public bool KillForced;
             public float CatHitTime;
 
             // Knockout tracking: armed by a bump, cleared once they're safely back on the ground.
@@ -75,6 +79,8 @@ namespace CouchParty
         private const float WheelKnockWindow = 1f;
 
         private static readonly Dictionary<Rigidbody, int> BodyToSlot = new Dictionary<Rigidbody, int>();
+        /// <summary>Players already out when the race started (ejected during the countdown), counted once per round.</summary>
+        private static readonly HashSet<int> OutBeforeStart = new HashSet<int>();
         private static readonly Dictionary<int, float> PairLastBump = new Dictionary<int, float>();
         /// <summary>Last hit per (player, cat), so one hit counts once.</summary>
         private static readonly Dictionary<(int, int), float> CatLastHit = new Dictionary<(int, int), float>();
@@ -97,6 +103,7 @@ namespace CouchParty
             Slots.Clear();
             BodyToSlot.Clear();
             PairLastBump.Clear();
+            OutBeforeStart.Clear();
             CatLastHit.Clear();
             _gm = null;
             _nextRefresh = 0;
@@ -195,6 +202,8 @@ namespace CouchParty
         private static void AddLive(PlayerStats st, Live live)
         {
             st.Crashes += live.Crashes;
+            st.Ejects += live.Ejects;
+            st.Timeouts += live.Timeouts;
             st.WheelsLost += live.WheelsLost;
             st.DistanceMeters += live.Distance;
             st.TopSpeedKmh = Mathf.Max(st.TopSpeedKmh, live.TopSpeed);
@@ -211,7 +220,7 @@ namespace CouchParty
             st.BigJumps += live.BigJumps;
             live.Air = 0;
             live.BigJumps = 0;
-            live.Crashes = live.WheelsLost = 0;
+            live.Crashes = live.Ejects = live.Timeouts = live.WheelsLost = 0;
             live.Bumps = live.Rams = live.GotRammed = live.Knockouts = live.WheelsKnockedOff = 0;
             live.Distance = 0;
         }
@@ -250,11 +259,26 @@ namespace CouchParty
                 int index = Access.Get(p, "index", -1);
                 int slot = index >= 0 && index < Game.MaxSlots ? index : i;
 
-                if (!Slots.TryGetValue(slot, out var live) || !ReferenceEquals(live.Player, p) || live.Car == null)
+                bool isNew = !Slots.TryGetValue(slot, out var live) || !ReferenceEquals(live.Player, p);
+                if (isNew)
                 {
                     live = new Live { Player = p, Slot = slot };
-                    live.Car = Access.Get<Component>(p, "cc");
                     live.Character = Access.Get<object>(p, "character");
+                    live.WasDead = Access.Get(live.Character, "isdead", false);
+                    Slots[slot] = live;
+                    // Out before the start signal: nobody can crash while held at the start, so that's an eject.
+                    if (live.WasDead && OutBeforeStart.Add(slot))
+                    {
+                        live.Crashes++;
+                        live.Ejects++;
+                        Plugin.Debug($"Player {slot + 1} crashed: eject (ejected before the start).");
+                    }
+                }
+
+                // Find the car (and its wheels) if we don't have it yet; keep the counts gathered so far.
+                if (live.Car == null)
+                {
+                    live.Car = Access.Get<Component>(p, "cc");
                     if (live.Car != null)
                     {
                         live.Body = live.Car.GetComponent<Rigidbody>() ?? live.Car.GetComponentInParent<Rigidbody>();
@@ -266,9 +290,7 @@ namespace CouchParty
                             live.CustomWheels = live.Wheels.Select(w => Access.Get<object>(w, "theActualWheel")).Where(w => w != null).ToList();
                     }
                     if (live.Body == null) live.Body = Access.Get<Rigidbody>(live.Character, "rb");
-                    live.WasDead = Access.Get(live.Character, "isdead", false);
-                    Slots[slot] = live;
-                    WatchCollisions(slot, live);
+                    if (live.Car != null || isNew) WatchCollisions(slot, live);
                 }
 
                 if (!_loggedMapping)
@@ -309,6 +331,7 @@ namespace CouchParty
             if (other == slot) return;
             if (collision.relativeVelocity.magnitude < MinBumpSpeed) return;
             if (!Slots.TryGetValue(slot, out var a) || !Slots.TryGetValue(other, out var b)) return;
+            if (!StillRacing(a) || !StillRacing(b)) return; // finished, crashed or out: coasting wrecks don't count
 
             // Both cars report the same hit: count it once per pair per cooldown.
             int pair = Mathf.Min(slot, other) * 10 + Mathf.Max(slot, other);
@@ -340,7 +363,7 @@ namespace CouchParty
         private static void CheckCat(int slot, Rigidbody body, Collision collision)
         {
             var cat = body.GetComponentInParent<AnimalController>();
-            if (cat == null || !Slots.TryGetValue(slot, out var live)) return;
+            if (cat == null || !Slots.TryGetValue(slot, out var live) || !StillRacing(live)) return;
             if (collision.relativeVelocity.magnitude < 1f) return; // resting against it doesn't count
 
             var key = (slot, cat.GetInstanceID());
@@ -371,6 +394,72 @@ namespace CouchParty
             return false;
         }
 
+        // ---------------- How a player's race ended (from the game) ----------------
+
+        /// <summary>The game kills the character: remember who asked, which tells an eject from a crash.</summary>
+        public static void NoteKill(object character, bool forced, string caller, string reason)
+        {
+            var live = Slots.Values.FirstOrDefault(l => ReferenceEquals(l.Character, character));
+            if (live == null || live.WasDead || Access.Get(character, "isdead", false)) return; // only the first, fatal call
+            live.KillCaller = caller;
+            live.KillForced = forced;
+            if (live.DeathReason == null) live.DeathReason = reason;
+            Plugin.Debug($"Player {live.Slot + 1} kill request: caller '{caller}', forced {forced}, reason {reason}.");
+        }
+
+        /// <summary>
+        /// Eject (pressed Y): the race code (ReadyToReset) kills the character with death reason "crashed".
+        /// Hard crashes come from the character's own damage code (DamageCharacterScript); hazards like kill
+        /// blocks report their own death reason. Timeouts also come from ReadyToReset but are signalled first,
+        /// so they're handled before this is asked. (Seen in logs: eject = 'ReadyToReset.cs', forced True;
+        /// hard crash = 'DamageCharacterScript.cs', forced False.)
+        /// </summary>
+        private static bool IsEject(Live live)
+        {
+            bool fromRaceCode = (live.KillCaller ?? "").StartsWith("ReadyToReset", StringComparison.OrdinalIgnoreCase);
+            bool plainCrash = live.DeathReason == null || live.DeathReason == "Gameplay_Crashed";
+            return fromRaceCode && plainCrash;
+        }
+
+        /// <summary>Not across the line, not crashed and not taken out by the game.</summary>
+        private static bool StillRacing(Live live) => !live.WasFinished && !live.WasDead && live.OutReason == null;
+
+        private static Live FindLive(object player) => Slots.Values.FirstOrDefault(l => ReferenceEquals(l.Player, player));
+
+        /// <summary>The game took a player out without a crash (timeout / removed).</summary>
+        public static void MarkOut(object player, string reason)
+        {
+            var live = FindLive(player);
+            if (live == null || live.OutReason != null) return;
+            live.OutReason = reason;
+            Plugin.Debug($"Player {live.Slot + 1}: {reason}.");
+        }
+
+        /// <summary>The game reports why a player died.</summary>
+        public static void NoteDeathReason(object player, string reason)
+        {
+            var live = FindLive(player);
+            if (live == null) return;
+            live.DeathReason = reason;
+            Plugin.Debug($"Player {live.Slot + 1} death reason from the game: {PrettyReason(reason)} ({reason}).");
+        }
+
+        private static string PrettyReason(string key)
+        {
+            switch (key)
+            {
+                case null: return "reason not reported yet";
+                case "Gameplay_Crashed": return "crashed";
+                case "Gameplay_Death_Eye": return "eye";
+                case "Gameplay_Death_Ghost": return "ghost";
+                case "Gameplay_Death_Sticky": return "sticky";
+                case "Gameplay_Death_FoundFootage": return "found footage";
+                case "Gameplay_Death_KillBlock": return "kill block";
+                case "Gameplay_Death_Logic": return "level logic";
+                default: return key;
+            }
+        }
+
         private static void CreditKnockout(Live victim, string how)
         {
             victim.KoArmed = false;
@@ -389,8 +478,14 @@ namespace CouchParty
             bool dead = Access.Get(live.Character, "isdead", false);
             if (dead && !live.WasDead && !finished)
             {
+                // A hard crash, an eject or a timeout (too slow): all end the race early, all count as a crash.
+                // Ejects and timeouts are also counted on their own (Ejector seat / Snail).
                 live.Crashes++;
-                Plugin.Debug($"Player {live.Slot + 1} crashed.");
+                string kind;
+                if (live.OutReason != null) { live.Timeouts++; kind = "timeout"; }
+                else if (IsEject(live)) { live.Ejects++; kind = "eject"; }
+                else kind = "hard crash";
+                Plugin.Debug($"Player {live.Slot + 1} crashed: {kind} (reason: {PrettyReason(live.DeathReason)}, caller: '{live.KillCaller}', forced: {live.KillForced}).");
                 if (live.KoArmed) CreditKnockout(live, "crashed");
                 if (live.CatArmed)
                 {

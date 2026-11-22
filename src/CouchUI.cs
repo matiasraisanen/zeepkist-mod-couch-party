@@ -20,7 +20,10 @@ namespace CouchParty
         // Main window
         private bool _open;
         private Tab _tab = Tab.Players;
-        private Rect _windowRect = new Rect(80, 80, 900, 860);
+        private Rect _windowRect = new Rect(60, 60, 1150, 900);
+
+        /// <summary>Wide enough for three columns of stats / Hall of Fame cards.</summary>
+        private bool Wide => _windowRect.width >= 1050;
         private Vector2 _scroll;
 
         // Players tab
@@ -776,53 +779,40 @@ namespace CouchParty
             ProgressBar($"Win rate {WinRate(st)}%", WinRate(st) / 100f);
             GUILayout.Space(8);
 
-            float col = (_windowRect.width - 90) / 2f;
-            GUILayout.BeginHorizontal();
-            GUILayout.BeginVertical(GUILayout.Width(col));
-            StatGroup("Racing");
-            StatRow("Races", st.Races);
-            StatRow("Wins", st.Wins);
-            StatRow("Finishes", st.Finishes);
-            StatRow("DNFs", st.Dnfs);
-            StatRow("Shortcut tries", st.Shortcuts);
-            GUILayout.Space(8);
-            StatGroup("Records");
-            StatRow("Map records held", RecordsHeld(selected));
-            StatRow("Records broken", st.RecordsBroken);
-            StatRow("Personal bests", st.PersonalBests);
-            StatRow("Time on the clock", Game.FormatDuration(st.FinishTimeSeconds));
-            GUILayout.Space(8);
-            StatGroup("Bumper cars");
-            StatRow("Bumps", st.Bumps);
-            StatRow("Rams", st.Rams);
-            StatRow("Got rammed", st.GotRammed);
-            StatRow("Knockouts", st.Knockouts);
-            StatRow("Wheels knocked off", st.WheelsKnockedOff);
-            GUILayout.Space(8);
-            StatGroup("Cats");
-            StatRow("Cats hugged", st.CatsHugged);
-            StatRow("Crashes caused by cats", st.CatCrashes);
-            GUILayout.EndVertical();
+            // Groups of (label, value) rows, laid out in 3 columns on a wide window (fits 16:9 without scrolling), else 2.
+            var racing = new (string, object)[] { ("Races", st.Races), ("Wins", st.Wins), ("Finishes", st.Finishes), ("DNFs", st.Dnfs), ("Shortcut tries", st.Shortcuts) };
+            var records = new (string, object)[] { ("Map records held", RecordsHeld(selected)), ("Records broken", st.RecordsBroken), ("Personal bests", st.PersonalBests), ("Time on the clock", Game.FormatDuration(st.FinishTimeSeconds)) };
+            var carnage = new (string, object)[] { ("Crashes", st.Crashes), ("   hard crashes", st.HardCrashes), ("   ejects", st.Ejects), ("   timeouts", st.Timeouts), ("Wheels lost", st.WheelsLost), ("3-wheel finishes", st.ThreeWheelFinishes), ("2-wheel finishes", st.TwoWheelFinishes), ("1-wheel finishes", st.OneWheelFinishes), ("No-wheel finishes", st.ZeroWheelFinishes), ("On foot finishes", st.OnFootFinishes) };
+            var driving = new (string, object)[] { ("Distance driven", Km(st.DistanceMeters)), ("Distance per race", Km(st.Races > 0 ? st.DistanceMeters / st.Races : 0)), ("Top speed", $"{st.TopSpeedKmh:0} km/h"), ("Air time", AirTime(st.AirSeconds)), ("Longest jump", $"{st.LongestJumpSeconds:0.0} s"), ("Big jumps (1 s+)", st.BigJumps) };
+            var bumper = new (string, object)[] { ("Bumps", st.Bumps), ("Rams", st.Rams), ("Got rammed", st.GotRammed), ("Knockouts", st.Knockouts), ("Wheels knocked off", st.WheelsKnockedOff) };
+            var cats = new (string, object)[] { ("Cats hugged", st.CatsHugged), ("Crashes caused by cats", st.CatCrashes) };
 
-            GUILayout.Space(20);
-            GUILayout.BeginVertical(GUILayout.Width(col));
-            StatGroup("Carnage");
-            StatRow("Crashes", st.Crashes);
-            StatRow("Wheels lost", st.WheelsLost);
-            StatRow("3-wheel finishes", st.ThreeWheelFinishes);
-            StatRow("2-wheel finishes", st.TwoWheelFinishes);
-            StatRow("1-wheel finishes", st.OneWheelFinishes);
-            StatRow("No-wheel finishes", st.ZeroWheelFinishes);
-            StatRow("On foot finishes", st.OnFootFinishes);
-            GUILayout.Space(8);
-            StatGroup("Driving");
-            StatRow("Distance driven", Km(st.DistanceMeters));
-            StatRow("Distance per race", Km(st.Races > 0 ? st.DistanceMeters / st.Races : 0));
-            StatRow("Top speed", $"{st.TopSpeedKmh:0} km/h");
-            StatRow("Air time", AirTime(st.AirSeconds));
-            StatRow("Longest jump", $"{st.LongestJumpSeconds:0.0} s");
-            StatRow("Big jumps (1 s+)", st.BigJumps);
-            GUILayout.EndVertical();
+            var columns = Wide
+                ? new[]
+                {
+                    new[] { ("Racing", racing), ("Records", records) },
+                    new[] { ("Carnage", carnage), ("Cats", cats) },
+                    new[] { ("Driving", driving), ("Bumper cars", bumper) },
+                }
+                : new[]
+                {
+                    new[] { ("Racing", racing), ("Records", records), ("Bumper cars", bumper), ("Cats", cats) },
+                    new[] { ("Carnage", carnage), ("Driving", driving) },
+                };
+            float col = (_windowRect.width - 70 - (columns.Length - 1) * 20) / columns.Length;
+            GUILayout.BeginHorizontal();
+            for (int c = 0; c < columns.Length; c++)
+            {
+                if (c > 0) GUILayout.Space(20);
+                GUILayout.BeginVertical(GUILayout.Width(col));
+                for (int g = 0; g < columns[c].Length; g++)
+                {
+                    if (g > 0) GUILayout.Space(8);
+                    StatGroup(columns[c][g].Item1);
+                    foreach (var (label, value) in columns[c][g].Item2) StatRow(label, value);
+                }
+                GUILayout.EndVertical();
+            }
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
 
@@ -889,7 +879,9 @@ namespace CouchParty
                 ("Road tripper", "Longest total distance driven", p => p.Stats.DistanceMeters, v => Km(v)),
                 ("Frequent flyer", "Most total time in the air", p => p.Stats.AirSeconds, v => AirTime(v)),
                 ("Moon landing", "Longest single jump", p => p.Stats.LongestJumpSeconds, v => $"{v:0.0} s"),
-                ("Crash king", "Crashed the most times", p => p.Stats.Crashes, v => $"{v:0} crashes"),
+                ("Crash king", "Most hard crashes (actually hit something)", p => p.Stats.HardCrashes, v => $"{v:0} crashes"),
+                ("Ejector seat", "Ejected the most", p => p.Stats.Ejects, v => $"{v:0} ejects"),
+                ("Snail", "Timed out the most (too slow for 10 seconds)", p => p.Stats.Timeouts, v => $"{v:0} timeouts"),
                 ("Wheel donor", "Lost the most wheels", p => p.Stats.WheelsLost, v => $"{v:0} wheels"),
                 ("Limping home", "Most finishes with wheels missing", p => p.Stats.DamagedFinishes, v => $"{v:0} finishes"),
                 ("No-wheel hero", "Most finishes with no wheels left", p => p.Stats.ZeroWheelFinishes, v => $"{v:0} finishes"),
@@ -903,11 +895,12 @@ namespace CouchParty
                 ("Cat's revenge", "Crashed the most after hitting a cat", p => p.Stats.CatCrashes, v => $"{v:0} crashes"),
             };
 
-            float col = (_windowRect.width - 90) / 2f;
-            for (int i = 0; i < categories.Count; i += 2)
+            int perRow = Wide ? 3 : 2;
+            float col = (_windowRect.width - 70 - (perRow - 1) * 10) / perRow;
+            for (int i = 0; i < categories.Count; i += perRow)
             {
                 GUILayout.BeginHorizontal();
-                for (int j = i; j < Mathf.Min(i + 2, categories.Count); j++)
+                for (int j = i; j < Mathf.Min(i + perRow, categories.Count); j++)
                 {
                     var c = categories[j];
                     GUILayout.BeginVertical(_row, GUILayout.Width(col));
@@ -927,7 +920,7 @@ namespace CouchParty
                     }
                     for (int k = top.Count; k < 3; k++) GUILayout.Label(" ", _label);
                     GUILayout.EndVertical();
-                    if (j == i) GUILayout.Space(10);
+                    if (j < Mathf.Min(i + perRow, categories.Count) - 1) GUILayout.Space(10);
                 }
                 GUILayout.EndHorizontal();
                 GUILayout.Space(8);

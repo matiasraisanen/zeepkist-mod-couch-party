@@ -91,7 +91,13 @@ namespace CouchParty
         public int Shortcuts { get; set; }        // crossed the finish but missed checkpoints
         public int PersonalBests { get; set; }
         public int RecordsBroken { get; set; }
-        public int Crashes { get; set; }
+        public int Crashes { get; set; }          // race ended early: hard crash, eject or timeout (the total)
+        public int Ejects { get; set; }           // of those: pressed eject
+        public int Timeouts { get; set; }         // of those: auto-ejected for being too slow
+
+        /// <summary>Crashes that weren't ejects or timeouts: actually hit something.</summary>
+        [JsonIgnore]
+        public int HardCrashes => Math.Max(0, Crashes - Ejects - Timeouts);
         public int WheelsLost { get; set; }
         public double DistanceMeters { get; set; }
         public float TopSpeedKmh { get; set; }
@@ -138,7 +144,7 @@ namespace CouchParty
                 if (s == null) continue;
                 t.Races += s.Races; t.Wins += s.Wins; t.Finishes += s.Finishes; t.Dnfs += s.Dnfs;
                 t.Shortcuts += s.Shortcuts; t.PersonalBests += s.PersonalBests; t.RecordsBroken += s.RecordsBroken;
-                t.Crashes += s.Crashes; t.WheelsLost += s.WheelsLost; t.DistanceMeters += s.DistanceMeters;
+                t.Crashes += s.Crashes; t.Ejects += s.Ejects; t.Timeouts += s.Timeouts; t.WheelsLost += s.WheelsLost; t.DistanceMeters += s.DistanceMeters;
                 t.TopSpeedKmh = Math.Max(t.TopSpeedKmh, s.TopSpeedKmh); t.FinishTimeSeconds += s.FinishTimeSeconds;
                 t.ThreeWheelFinishes += s.ThreeWheelFinishes; t.TwoWheelFinishes += s.TwoWheelFinishes;
                 t.OneWheelFinishes += s.OneWheelFinishes; t.ZeroWheelFinishes += s.ZeroWheelFinishes;
