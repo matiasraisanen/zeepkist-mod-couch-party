@@ -53,11 +53,39 @@ Requires **ZeepSDK** (Modkist installs it together with BepInEx).
 
 6. **Leaderboard tab:** every map, with the same "Best per player" / "All runs" switch. **x** removes one time (or all of a player's times in the per-player view).
 7. **Stats tab:** pick a player to see their stats in groups (Racing, Records, Carnage, Driving) with a win-rate bar.
-8. **Hall of Fame tab:** the top 3 (gold, silver, bronze) in each category: wins, win rate (3+ races), records held/broken, PBs, top speed, distance, air time (Frequent flyer), longest jump (Moon landing), crashes, wheels lost, finishes missing wheels, no-wheel finishes, on foot finishes (Stuntman), shortcut tries, rams (Bumper car champ), knockouts (Demolition derby), wheels knocked off (Wheel snatcher), got rammed (Punching bag).
+8. **Hall of Fame tab:** the top 3 (gold, silver, bronze) in each category: wins, win rate (3+ races), records held/broken, PBs, top speed, distance, air time (Frequent flyer), longest jump (Moon landing), crashes, wheels lost, finishes missing wheels, no-wheel finishes, on foot finishes (Stuntman), shortcut tries, rams (Bumper car champ), knockouts (Demolition derby), wheels knocked off (Wheel snatcher), got rammed (Punching bag), cats petted (Cat lover), crashes caused by cats (Cat's revenge).
 
-Stats tracked: lifetime stats per profile (races, wins and win %, finishes, DNFs, shortcut tries, personal bests, map records broken and held, crashes, wheels lost, finishes on 3 / 2 / 1 / 0 wheels, on foot finishes (ejected, then crossed the line without the car), bumps with other racers, rams, got rammed, knockouts (after bumping into you, someone crashed, fell off the map or had to respawn before getting back on track), wheels knocked off (another racer lost a wheel right after bumping into you), distance driven, top speed, air time (total, longest jump, big jumps of 1 s+), total time on the clock).
+Stats tracked: lifetime stats per profile (races, wins and win %, finishes, DNFs, shortcut tries, personal bests, map records broken and held, crashes, wheels lost, finishes on 3 / 2 / 1 / 0 wheels, on foot finishes (ejected, then crossed the line without the car), bumps with other racers, rams, got rammed, knockouts (after bumping into you, someone crashed, fell off the map or had to respawn before getting back on track), wheels knocked off (another racer lost a wheel right after bumping into you), cats petted (walking cats hit by your car), crashes caused by cats, distance driven, top speed, air time (total, longest jump, big jumps of 1 s+), total time on the clock).
 
 Leaderboard entries are linked to the profile, not the name, so renaming a profile renames all their old records too.
+
+## Sync between PCs
+
+Use the same profiles, stats and leaderboards on several PCs, for example at a friend's place, through your own small server. See [server/README.md](server/README.md) for setting it up (Docker plus a reverse proxy with HTTPS).
+
+- **Setup:** in the game, open **F8 → Sync**, enter your server address and this PC's key, and press **Save & sync**. Each PC gets its own key from the server.
+- **Offline:** every PC keeps a full copy and works offline.
+- **When it syncs:** when the game starts, a few seconds after each race or profile change, and with **Sync now**.
+- **Merging, so nothing is lost:**
+  - All runs from every PC are combined. Times you removed and maps you cleared stay removed.
+  - Stats are counted per PC and added together.
+  - Renames and deletions: the newest change wins.
+- **What stays per PC:** Player 1–4 picks and outfits, since cosmetic unlocks differ between Steam accounts.
+- **Leaving a friend's PC:** press **Forget on this PC** to stop it syncing. You can also remove that PC's key on the server.
+- **Where settings live:** the server address and key are stored in `BepInEx\config\com.skofdo.couchparty.cfg` on each PC, never in the mod or this repository.
+
+## Backups
+
+Your profiles, stats and leaderboards are backed up automatically. Open **F8 → Backups** to see them.
+
+- **When:** a backup is made when you start the game, but only if something changed since the last one.
+- **How many:** the newest 30 are kept. The limit is a count, not an age, so months without playing never delete anything. Backups made before a mod update are kept forever.
+- **Restore:** press **Restore** next to a backup. Your current data is backed up first, so a restore can be undone.
+- **Backup now** and **Open backup folder** are on the same page.
+- **Unreadable files:** if a data file can't be read, the mod sets it aside as `*.unreadable-<date>.json` instead of overwriting it, and warns you in the game.
+- **Extra copy:** set `Extra backup folder` in the config (e.g. a OneDrive folder) to keep a second copy of every backup.
+
+**Deleting a profile** moves it to an archive. If you add the same player again later (the same Steam friend, or the same name for typed profiles), their records and stats come back.
 
 Notes:
 - Only **local multiplayer** races (2+ players, not online) are recorded.
@@ -75,7 +103,7 @@ Notes:
 
 Send `BepInEx\LogOutput.log` afterwards. The mod writes `[debug]` lines into it.
 
-- [ ] The log says `Couch Party 0.7.0 loaded`.
+- [ ] The log says `Couch Party 0.8.0 loaded`.
 - [ ] The top-3 popup appears for a few seconds when a race starts, then fades. It doesn't appear on the player-select screen.
 - [ ] F9 during a race shows it again for a few seconds.
 - [ ] Beating the map record shows "NEW MAP RECORD!" right after crossing the finish (or at the latest on the results screen).
@@ -85,6 +113,9 @@ Send `BepInEx\LogOutput.log` afterwards. The mod writes `[debug]` lines into it.
 - [ ] After a race, the Stats tab shows races, crashes, distance and top speed. The log has `Stats: PlayersReady[...] -> Player N` lines; check they match who was who.
 - [ ] Big jumps log `Player N: 1.4 s of air time!`; the Stats tab shows air time and longest jump.
 - [ ] Knockouts log `Knockout! Player X took out Player Y (...)`, and wheels knocked off log `Wheel knocked off! ...`.
+- [ ] F8 → Backups lists a backup after starting the game; Restore works and the "before restore" backup appears.
+- [ ] Deleting and re-adding a player shows "Welcome back ... Restored their records and stats".
+- [ ] F8 → Sync: after Save & sync it says "Uploaded (first sync)" or "Synced"; a second PC sees the same profiles and times.
 - [ ] Top speed looks about right compared to the in-game speedometer.
 
 If times end up next to the wrong players, set `Player number base` in the config file to `0` or `1` (default `-1` = automatic) and tell me which one worked.

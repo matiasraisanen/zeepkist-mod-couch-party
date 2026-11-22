@@ -1,0 +1,267 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using Newtonsoft.Json;
+using UnityEngine;
+using UnityEngine.Networking;
+
+namespace CouchParty
+{
+    /// <summary>Everything that syncs between PCs. Player 1-4 assignments and outfits stay local.</summary>
+    public class SyncDoc
+    {
+        public int Format { get; set; } = 1;
+        public List<Profile> Profiles { get; set; } = new List<Profile>();
+        public LeaderboardData Leaderboard { get; set; } = new LeaderboardData();
+
+        private static readonly JsonSerializerSettings Settings = new JsonSerializerSettings
+        {
+            NullValueHandling = NullValueHandling.Ignore,
+            ObjectCreationHandling = ObjectCreationHandling.Replace,
+        };
+
+        public string ToJson() => JsonConvert.SerializeObject(this, Settings);
+        public static SyncDoc FromJson(string json) => JsonConvert.DeserializeObject<SyncDoc>(json, Settings);
+        public static SyncDoc Clone(SyncDoc doc) => FromJson(doc.ToJson());
+    }
+
+    /// <summary>
+    /// Syncs profiles, stats and leaderboards through a small server (see the server folder).
+    /// Every PC keeps a full local copy and works offline; syncing downloads the server's copy,
+    /// merges it with the local one, and uploads the result. Merging never loses a run or a stat:
+    ///  - runs: all runs from both sides (by id), minus runs/maps someone removed on purpose
+    ///  - stats: kept per machine; each machine's newest entry wins; totals are the sum
+    ///  - profile name / Steam link / deleted: the newest change wins
+    /// </summary>
+    internal static class Sync
+    {
+        public static bool Busy { get; private set; }
+        public static DateTime? LastSync { get; private set; }
+        public static string LastError { get; private set; }
+        public static string LastResult { get; private set; }
+
+        private static bool _dirty;
+        private static float _dirtySince;
+        private static bool _backedUpThisSession;
+
+        /// <summary>Wait this long after the last change before syncing (several saves in a row become one sync).</summary>
+        private const float Debounce = 4f;
+
+        public static bool Configured =>
+            Plugin.SyncEnabled.Value && !string.IsNullOrWhiteSpace(Plugin.SyncUrl.Value) && !string.IsNullOrWhiteSpace(Plugin.SyncKey.Value);
+
+        public static void MarkDirty()
+        {
+            if (!_dirty) _dirtySince = Time.unscaledTime;
+            _dirty = true;
+        }
+
+        /// <summary>Called every frame: syncs a few seconds after local changes.</summary>
+        public static void Tick(MonoBehaviour host)
+        {
+            if (_dirty && !Busy && Configured && Time.unscaledTime - _dirtySince > Debounce)
+                SyncNow(host);
+        }
+
+        public static void SyncNow(MonoBehaviour host)
+        {
+            if (Busy || !Configured || host == null) return;
+            _dirty = false;
+            host.StartCoroutine(Run());
+        }
+
+        // ---------------- Network ----------------
+
+        private static string DataUrl => Plugin.SyncUrl.Value.Trim().TrimEnd('/') + "/api/data";
+
+        private static UnityWebRequest Request(string method, string body = null, string ifMatch = null)
+        {
+            var req = new UnityWebRequest(DataUrl, method) { downloadHandler = new DownloadHandlerBuffer(), timeout = 20 };
+            if (body != null)
+            {
+                req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body));
+                req.SetRequestHeader("Content-Type", "application/json");
+            }
+            req.SetRequestHeader("Authorization", "Bearer " + Plugin.SyncKey.Value.Trim());
+            if (ifMatch != null) req.SetRequestHeader("If-Match", ifMatch);
+            return req;
+        }
+
+        private static IEnumerator Run()
+        {
+            Busy = true;
+            LastError = null;
+            try
+            {
+                for (int attempt = 1; attempt <= 3; attempt++)
+                {
+                    // 1) Download the server's copy.
+                    SyncDoc remote = null;
+                    string etag;
+                    using (var get = Request("GET"))
+                    {
+                        yield return get.SendWebRequest();
+                        if (get.responseCode == 404) etag = "\"0\""; // nothing stored yet
+                        else if (get.result != UnityWebRequest.Result.Success)
+                        {
+                            Fail(get);
+                            yield break;
+                        }
+                        else
+                        {
+                            etag = get.GetResponseHeader("ETag") ?? "\"0\"";
+                            try { remote = SyncDoc.FromJson(get.downloadHandler.text); }
+                            catch (Exception e)
+                            {
+                                LastError = "The server sent data the mod couldn't read: " + e.Message;
+                                yield break;
+                            }
+                        }
+                    }
+
+                    // 2) Merge with what's here right now (on the main thread, so nothing saved meanwhile is lost).
+                    if (!_backedUpThisSession)
+                    {
+                        _backedUpThisSession = true;
+                        try { Backups.Create("before sync", keep: false, force: false); }
+                        catch (Exception e) { Plugin.Log.LogWarning($"Backup before sync failed: {e.Message}"); }
+                    }
+                    var local = Store.ToSyncDoc();
+                    var merged = remote == null ? local : Merge(local, remote);
+                    string mergedJson = merged.ToJson();
+                    if (mergedJson != local.ToJson()) Store.ApplySyncDoc(SyncDoc.FromJson(mergedJson));
+
+                    // 3) Upload, unless the server already has exactly this.
+                    if (remote != null && mergedJson == remote.ToJson())
+                    {
+                        Done("Up to date");
+                        yield break;
+                    }
+                    using (var put = Request("PUT", mergedJson, etag))
+                    {
+                        yield return put.SendWebRequest();
+                        if (put.responseCode == 409 || put.responseCode == 412)
+                        {
+                            Plugin.Debug("Sync: someone else synced at the same time, retrying.");
+                            continue; // another PC uploaded in between: merge again
+                        }
+                        if (put.result != UnityWebRequest.Result.Success)
+                        {
+                            Fail(put);
+                            yield break;
+                        }
+                    }
+                    Done(remote == null ? "Uploaded (first sync)" : "Synced");
+                    yield break;
+                }
+                LastError = "The server kept changing during sync. Try again in a moment.";
+            }
+            finally
+            {
+                Busy = false;
+                if (LastError != null) Plugin.Log.LogWarning("Sync failed: " + LastError);
+            }
+        }
+
+        private static void Done(string result)
+        {
+            LastSync = DateTime.Now;
+            LastResult = result;
+            Plugin.Log.LogInfo($"Sync: {result}.");
+        }
+
+        private static void Fail(UnityWebRequest req)
+        {
+            LastError = req.responseCode == 401 || req.responseCode == 403
+                ? "The server didn't accept the key."
+                : req.responseCode > 0 ? $"Server answered {req.responseCode}: {req.error}" : $"Couldn't reach the server ({req.error}).";
+        }
+
+        // ---------------- Merge ----------------
+
+        /// <summary>Combines two copies; neither input is changed.</summary>
+        public static SyncDoc Merge(SyncDoc a, SyncDoc b)
+        {
+            a = SyncDoc.Clone(a);
+            b = SyncDoc.Clone(b);
+            return new SyncDoc
+            {
+                Profiles = MergeProfiles(a.Profiles, b.Profiles),
+                Leaderboard = MergeLeaderboards(a.Leaderboard, b.Leaderboard),
+            };
+        }
+
+        private static List<Profile> MergeProfiles(List<Profile> a, List<Profile> b)
+        {
+            var result = new List<Profile>();
+            var bById = b.ToDictionary(p => p.Id);
+            foreach (var id in a.Select(p => p.Id).Concat(b.Select(p => p.Id)).Distinct())
+            {
+                var pa = a.FirstOrDefault(p => p.Id == id);
+                bById.TryGetValue(id, out var pb);
+                if (pa == null || pb == null) { result.Add(pa ?? pb); continue; }
+
+                // Name, Steam link and deleted state: newest change wins.
+                var newer = pb.Modified > pa.Modified ? pb : pa;
+                var merged = newer;
+                merged.StatsResetAt = pa.StatsResetAt > pb.StatsResetAt ? pa.StatsResetAt : pb.StatsResetAt;
+
+                // Stats: per machine, the newest entry wins; entries from before a reset are dropped.
+                var stats = new Dictionary<string, PlayerStats>();
+                foreach (var kv in (pa.StatsByMachine ?? new Dictionary<string, PlayerStats>())
+                         .Concat(pb.StatsByMachine ?? new Dictionary<string, PlayerStats>()))
+                {
+                    if (kv.Value == null || kv.Value.Updated <= merged.StatsResetAt) continue;
+                    if (!stats.TryGetValue(kv.Key, out var have) || kv.Value.Updated > have.Updated) stats[kv.Key] = kv.Value;
+                }
+                merged.StatsByMachine = stats;
+                result.Add(merged);
+            }
+            return result;
+        }
+
+        private static LeaderboardData MergeLeaderboards(LeaderboardData a, LeaderboardData b)
+        {
+            var result = new LeaderboardData
+            {
+                DeletedRunIds = new HashSet<string>((a.DeletedRunIds ?? new HashSet<string>()).Concat(b.DeletedRunIds ?? new HashSet<string>())),
+                ClearedLevels = new Dictionary<string, DateTime>(),
+            };
+            foreach (var kv in (a.ClearedLevels ?? new Dictionary<string, DateTime>()).Concat(b.ClearedLevels ?? new Dictionary<string, DateTime>()))
+                if (!result.ClearedLevels.TryGetValue(kv.Key, out var t) || kv.Value > t) result.ClearedLevels[kv.Key] = kv.Value;
+
+            var keys = a.Levels.Keys.Concat(b.Levels.Keys).Distinct();
+            foreach (var key in keys)
+            {
+                a.Levels.TryGetValue(key, out var la);
+                b.Levels.TryGetValue(key, out var lb);
+                var newer = la == null ? lb : lb == null ? la : lb.LastPlayed > la.LastPlayed ? lb : la;
+                var level = new LevelRecords
+                {
+                    LevelName = newer.LevelName,
+                    Author = newer.Author,
+                    LastPlayed = new[] { la?.LastPlayed ?? default, lb?.LastPlayed ?? default }.Max(),
+                };
+
+                // Cleared by hand and not played since: stays gone.
+                if (result.ClearedLevels.TryGetValue(key, out var cleared) && level.LastPlayed.ToUniversalTime() <= cleared) continue;
+
+                // Races per machine: each machine only counts up, so the higher number is the newest.
+                foreach (var kv in (la?.RacesByMachine ?? new Dictionary<string, int>()).Concat(lb?.RacesByMachine ?? new Dictionary<string, int>()))
+                    if (!level.RacesByMachine.TryGetValue(kv.Key, out var n) || kv.Value > n) level.RacesByMachine[kv.Key] = kv.Value;
+
+                // Runs: everything from both sides, once, minus removed ones; keep the fastest MaxRuns.
+                level.Runs = (la?.Runs ?? new List<RunRecord>()).Concat(lb?.Runs ?? new List<RunRecord>())
+                    .Where(r => r != null && !result.DeletedRunIds.Contains(r.Id))
+                    .GroupBy(r => r.Id).Select(g => g.First())
+                    .OrderBy(r => r.Time).Take(LevelRecords.MaxRuns).ToList();
+                level.Best = (la ?? lb).Best ?? new Dictionary<string, BestTime>();
+                level.RebuildBest();
+                result.Levels[key] = level;
+            }
+            return result;
+        }
+    }
+}

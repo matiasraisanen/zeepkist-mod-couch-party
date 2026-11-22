@@ -269,7 +269,7 @@ namespace CouchParty
             records.LevelName = CurrentLevelName(gm);
             records.Author = CurrentLevelAuthor(gm);
             records.LastPlayed = DateTime.Now;
-            records.RacesPlayed++;
+            records.AddRace();
 
             var previousBest = records.Ranked().FirstOrDefault();
             float previousRecord = previousBest?.Time ?? float.MaxValue;
@@ -304,7 +304,7 @@ namespace CouchParty
                     }
                     best.Name = profile.Name;
                     best.Finishes++;
-                    records.AddRun(new RunRecord { ProfileId = profile.Id, Name = profile.Name, Time = line.Time, Date = DateTime.Now });
+                    records.AddRun(new RunRecord { ProfileId = profile.Id, Name = profile.Name, Time = line.Time, Date = DateTime.Now, Machine = Store.MachineId });
                     if (line.Time < best.Time)
                     {
                         line.PreviousBest = best.Time;

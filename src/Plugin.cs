@@ -16,7 +16,7 @@ namespace CouchParty
     {
         public const string Guid = "com.skofdo.couchparty";
         public const string Name = "Couch Party";
-        public const string Version = "0.6.0";
+        public const string Version = "0.8.0";
 
         internal static ManualLogSource Log;
 
@@ -30,6 +30,11 @@ namespace CouchParty
         internal static ConfigEntry<float> UiScale;
         internal static ConfigEntry<int> PlayerNumberBase;
         internal static ConfigEntry<bool> DebugLogging;
+        internal static ConfigEntry<int> MaxBackups;
+        internal static ConfigEntry<string> ExtraBackupFolder;
+        internal static ConfigEntry<bool> SyncEnabled;
+        internal static ConfigEntry<string> SyncUrl;
+        internal static ConfigEntry<string> SyncKey;
 
         /// <summary>Set once results for the current round are saved; cleared when a new round starts.</summary>
         internal static bool RecordedThisRound;
@@ -54,6 +59,13 @@ namespace CouchParty
             PlayerNumberBase = Config.Bind("Advanced", "Player number base", -1,
                 new ConfigDescription("Whether the game's result player numbers start at 0 or 1. -1 = detect automatically.", new AcceptableValueRange<int>(-1, 1)));
             DebugLogging = Config.Bind("Advanced", "Debug logging", true, "Write extra details to the BepInEx log (useful while testing).");
+            MaxBackups = Config.Bind("Backups", "Backups to keep", 30,
+                new ConfigDescription("How many backups to keep (by count, not age). Backups made before a mod update are always kept.", new AcceptableValueRange<int>(5, 500)));
+            SyncEnabled = Config.Bind("Sync", "Enabled", true, "Sync profiles, stats and leaderboards with your Couch Party server (needs an address and a key).");
+            SyncUrl = Config.Bind("Sync", "Server address", "", "Address of your Couch Party server, e.g. https://your-domain.example/couchparty. Set it in the game: F8 > Sync.");
+            SyncKey = Config.Bind("Sync", "Key", "", "This PC's key for the server. Set it in the game: F8 > Sync.");
+            ExtraBackupFolder = Config.Bind("Backups", "Extra backup folder", "",
+                "Optional second folder that gets a copy of every backup, e.g. C:\\Users\\you\\OneDrive\\CouchParty. Empty = off.");
 
             // Each step runs on its own so one failure can't stop the rest (especially the UI) from starting.
             Step("load saved data", () => Store.Load(StorageApi.CreateModStorage(this)));
@@ -124,6 +136,7 @@ namespace CouchParty
         private void OnRoundStarted()
         {
             RecordedThisRound = false;
+            RoundStartTime = UnityEngine.Time.unscaledTime;
             Debug("Round started.");
             StatsTracker.OnRoundStarted();
             if (!Game.IsLocalMultiplayer()) return;
@@ -151,9 +164,14 @@ namespace CouchParty
             _harmony?.UnpatchSelf();
         }
 
+        /// <summary>When the current round started (unscaled time), for race times in the log. Negative = no round.</summary>
+        internal static float RoundStartTime = -1f;
+
         internal static void Debug(string message)
         {
-            if (DebugLogging != null && DebugLogging.Value) Log.LogInfo("[debug] " + message);
+            if (DebugLogging == null || !DebugLogging.Value) return;
+            string race = RoundStartTime >= 0 ? $"race {UnityEngine.Time.unscaledTime - RoundStartTime:0.00} s" : "no race";
+            Log.LogInfo($"[debug {DateTime.Now:HH:mm:ss.fff} | {race}] {message}");
         }
     }
 }

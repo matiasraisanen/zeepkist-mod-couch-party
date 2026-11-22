@@ -1,0 +1,10 @@
+services:
+  couchparty:
+    build: .
+    container_name: couchparty-sync
+    restart: unless-stopped
+    # Only reachable from this machine; Apache forwards HTTPS traffic to it.
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - ./data:/data

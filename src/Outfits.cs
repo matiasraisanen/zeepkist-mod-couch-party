@@ -223,7 +223,8 @@ namespace CouchParty
             if (items == null) yield break;
             foreach (var item in items)
             {
-                var shelfItems = Access.Get<IEnumerable>(item, "cosmetics");
+                // Only shelves have a "cosmetics" list; don't go looking for it on single items.
+                var shelfItems = item is CosmeticShelf ? Access.Get<IEnumerable>(item, "cosmetics") : null;
                 if (shelfItems != null && !(item is string))
                 {
                     foreach (var inner in shelfItems) yield return inner;

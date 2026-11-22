@@ -10,7 +10,7 @@ namespace CouchParty
     /// <summary>All Couch Party on-screen UI, drawn with Unity's immediate-mode GUI.</summary>
     public class CouchUI : MonoBehaviour
     {
-        public enum Tab { Players, Profiles, Leaderboard, Stats, Fame }
+        public enum Tab { Players, Profiles, Leaderboard, Stats, Fame, Backups, Sync }
 
         public static CouchUI Instance { get; private set; }
 
@@ -42,6 +42,10 @@ namespace CouchParty
         private string _confirmClearLevel;
         private string _confirmRemove;
         private bool _confirmResetStats;
+        private List<Backups.Entry> _backupList;
+        private string _confirmRestore;
+        private string _flash;
+        private float _flashUntil;
         private string _statsProfileId;
         private bool _lbAllRuns;        // Leaderboard tab: all runs instead of best per player
         private bool _resultsAllRuns;   // results screen: same
@@ -145,8 +149,13 @@ namespace CouchParty
             {
                 _announced = true;
                 _hintUntil = Time.unscaledTime + 15f;
-                try { ZeepSDK.Messaging.MessengerApi.LogSuccess($"Couch Party loaded. Press {Plugin.ToggleWindowKey.Value}", 5f); }
+                try
+                {
+                    if (Store.LoadWarning != null) ZeepSDK.Messaging.MessengerApi.LogWarning("Couch Party: " + Store.LoadWarning, 10f);
+                    else ZeepSDK.Messaging.MessengerApi.LogSuccess($"Couch Party loaded. Press {Plugin.ToggleWindowKey.Value}", 5f);
+                }
                 catch (Exception e) { Plugin.Debug("Messenger not available: " + e.Message); }
+                Sync.SyncNow(this); // pull what other PCs added (does nothing if sync isn't set up)
             }
 
             if (Input.GetKeyDown(Plugin.ToggleWindowKey.Value))
@@ -157,6 +166,7 @@ namespace CouchParty
             }
 
             if (InGameScene) StatsTracker.Tick();
+            Sync.Tick(this);
 
             // F9: on the results screen, switch best-per-player / all runs.
             // Otherwise show the top times for a few seconds (press again to hide). Only while racing.
@@ -209,7 +219,8 @@ namespace CouchParty
             {
                 var mouse = new Vector2(Input.mousePosition.x / scale, (Screen.height - Input.mousePosition.y) / scale);
                 string focused = GUI.GetNameOfFocusedControl();
-                bool typing = focused == NewNameControl || focused == RenameControl || focused == SearchControl;
+                bool typing = focused == NewNameControl || focused == RenameControl || focused == SearchControl ||
+                              focused == SyncUrlControl || focused == SyncKeyControl;
                 _blockInput = _open && (_windowRect.Contains(mouse) || typing);
             }
         }
@@ -221,8 +232,17 @@ namespace CouchParty
             GUILayout.BeginHorizontal();
             GUILayout.Label("Couch Party", _title);
             GUILayout.FlexibleSpace();
+            string syncLabel = Sync.Busy ? "Sync..." : Sync.LastError != null ? "Sync (!)" : "Sync";
+            if (GUILayout.Button(syncLabel, _tab == Tab.Sync ? _tabOn : _button, GUILayout.Width(120))) OpenSyncTab();
+            if (GUILayout.Button("Backups", _tab == Tab.Backups ? _tabOn : _button, GUILayout.Width(140)))
+            {
+                _tab = Tab.Backups;
+                _backupList = null;
+                _scroll = Vector2.zero;
+            }
             if (GUILayout.Button("Close", _button, GUILayout.Width(110))) _open = false;
             GUILayout.EndHorizontal();
+            if (Store.LoadWarning != null) GUILayout.Label(Store.LoadWarning, _gold);
 
             GUILayout.BeginHorizontal();
             TabButton("Players", Tab.Players);
@@ -241,6 +261,8 @@ namespace CouchParty
                 case Tab.Leaderboard: DrawLeaderboardTab(); break;
                 case Tab.Stats: DrawStatsTab(); break;
                 case Tab.Fame: DrawFameTab(); break;
+                case Tab.Backups: DrawBackupsTab(); break;
+                case Tab.Sync: DrawSyncTab(); break;
             }
             GUILayout.EndScrollView();
 
@@ -350,6 +372,7 @@ namespace CouchParty
                 _newName = "";
             }
             if (GUILayout.Button("Add from Steam friends...", _button)) OpenFriendPicker();
+            DrawFlash();
             GUILayout.Space(10);
 
             var profiles = Store.Profiles.Profiles.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
@@ -373,7 +396,8 @@ namespace CouchParty
                     }
                     if (_confirmDeleteId == p.Id)
                     {
-                        if (GUILayout.Button("Really delete?", _button, GUILayout.Width(170))) { Store.DeleteProfile(p); _confirmDeleteId = null; Game.ApplyNames(); }
+                        GUILayout.Label("Re-adding them later restores their records.", _small, GUILayout.Width(200));
+                        if (GUILayout.Button("Delete", _button, GUILayout.Width(100))) { Store.DeleteProfile(p); _confirmDeleteId = null; Game.ApplyNames(); }
                         if (GUILayout.Button("No", _button, GUILayout.Width(60))) _confirmDeleteId = null;
                     }
                     else if (GUILayout.Button("Delete", _button, GUILayout.Width(100))) _confirmDeleteId = p.Id;
@@ -406,8 +430,7 @@ namespace CouchParty
 
             if (confirm && !string.IsNullOrWhiteSpace(_renameText))
             {
-                p.Name = _renameText.Trim();
-                Store.SaveProfiles();
+                Store.RenameProfile(p, _renameText.Trim());
                 Game.ApplyNames();
                 _renamingId = null;
             }
@@ -416,9 +439,157 @@ namespace CouchParty
 
         private void AddProfile(string name, ulong steamId)
         {
-            Store.Profiles.Profiles.Add(new Profile { Name = name, SteamId = steamId, OutfitVersion = 2 });
-            Store.SaveProfiles();
+            var (profile, restored) = Store.AddOrRestoreProfile(name, steamId);
+            if (restored != null) FlashProfiles($"Welcome back, {profile.Name}! Restored their {restored}.");
         }
+
+        // ---------------- Sync page ----------------
+
+        private const string SyncUrlControl = "cp_sync_url";
+        private const string SyncKeyControl = "cp_sync_key";
+        private string _syncUrlText, _syncKeyText;
+        private bool _confirmForget;
+
+        private void OpenSyncTab()
+        {
+            _tab = Tab.Sync;
+            _scroll = Vector2.zero;
+            _syncUrlText = Plugin.SyncUrl.Value;
+            _syncKeyText = Plugin.SyncKey.Value;
+            _confirmForget = false;
+        }
+
+        private void DrawSyncTab()
+        {
+            GUILayout.Label("Share profiles, stats and leaderboards between PCs through your own Couch Party server. " +
+                            "Every PC keeps its own copy and works offline; syncing merges the copies, so nothing is lost. " +
+                            "Player 1-4 picks and outfits stay on each PC.", _small);
+            GUILayout.Space(8);
+
+            GUILayout.Label("Server address", _label);
+            GUI.SetNextControlName(SyncUrlControl);
+            _syncUrlText = GUILayout.TextField(_syncUrlText ?? "", 200, _field);
+            GUILayout.Label("e.g. https://your-domain.example/couchparty", _small);
+            GUILayout.Label("Key for this PC", _label);
+            GUI.SetNextControlName(SyncKeyControl);
+            _syncKeyText = GUILayout.PasswordField(_syncKeyText ?? "", '*', 200, _field);
+            GUILayout.Space(6);
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Save & sync", _button, GUILayout.Width(180)))
+            {
+                Plugin.SyncUrl.Value = (_syncUrlText ?? "").Trim();
+                Plugin.SyncKey.Value = (_syncKeyText ?? "").Trim();
+                Plugin.SyncEnabled.Value = true;
+                Sync.SyncNow(this);
+            }
+            GUI.enabled = Sync.Configured && !Sync.Busy;
+            if (GUILayout.Button("Sync now", _button, GUILayout.Width(150))) Sync.SyncNow(this);
+            GUI.enabled = true;
+            GUILayout.FlexibleSpace();
+            bool enabled = GUILayout.Toggle(Plugin.SyncEnabled.Value, " Sync on", _label);
+            if (enabled != Plugin.SyncEnabled.Value) Plugin.SyncEnabled.Value = enabled;
+            GUILayout.EndHorizontal();
+            GUILayout.Space(8);
+
+            // Status
+            if (Sync.Busy) GUILayout.Label("Syncing...", _gold);
+            else if (Sync.LastError != null) GUILayout.Label("Last sync failed: " + Sync.LastError, _gold);
+            else if (Sync.LastSync.HasValue) GUILayout.Label($"{Sync.LastResult} at {Sync.LastSync:t}", _green);
+            else if (!Sync.Configured) GUILayout.Label("Not set up on this PC.", _dim);
+            else GUILayout.Label("Not synced yet this session.", _dim);
+            GUILayout.Label("Syncs when the game starts and a few seconds after each race or profile change.", _small);
+
+            GUILayout.Space(14);
+            GUILayout.Label("Playing on someone else's PC? When you leave, forget the server and key here. " +
+                            "The data already synced stays on this PC, but it won't sync any more.", _small);
+            if (_confirmForget)
+            {
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("Yes, forget server and key", _button, GUILayout.Width(330)))
+                {
+                    Plugin.SyncUrl.Value = "";
+                    Plugin.SyncKey.Value = "";
+                    _syncUrlText = _syncKeyText = "";
+                    _confirmForget = false;
+                }
+                if (GUILayout.Button("No", _button, GUILayout.Width(60))) _confirmForget = false;
+                GUILayout.EndHorizontal();
+            }
+            else if (GUILayout.Button("Forget on this PC", _button, GUILayout.Width(240))) _confirmForget = true;
+        }
+
+        // ---------------- Backups page ----------------
+
+        private void DrawBackupsTab()
+        {
+            GUILayout.Label("Backups of your profiles, stats and leaderboards. One is made when you start the game, but only if " +
+                            $"something changed since the last one. The newest {Plugin.MaxBackups.Value} are kept, however old they are; " +
+                            "backups made before a mod update are kept forever.", _small);
+            GUILayout.Space(6);
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Backup now", _button, GUILayout.Width(180)))
+            {
+                try { Backups.BackupNow(); FlashProfiles("Backup created."); }
+                catch (Exception e) { FlashProfiles("Backup failed: " + e.Message); }
+                _backupList = null;
+            }
+            if (GUILayout.Button("Open backup folder", _button, GUILayout.Width(240))) Backups.OpenFolder();
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button("Back", _button, GUILayout.Width(100))) _tab = Tab.Players;
+            GUILayout.EndHorizontal();
+            if (!string.IsNullOrEmpty(Plugin.ExtraBackupFolder.Value))
+                GUILayout.Label($"Also copied to: {Plugin.ExtraBackupFolder.Value}", _small);
+            DrawFlash();
+            GUILayout.Space(8);
+
+            if (_backupList == null)
+            {
+                try { _backupList = Backups.List(); }
+                catch (Exception e) { _backupList = new List<Backups.Entry>(); FlashProfiles("Could not list backups: " + e.Message); }
+            }
+            if (_backupList.Count == 0) GUILayout.Label("No backups yet.", _dim);
+
+            foreach (var b in _backupList)
+            {
+                GUILayout.BeginVertical(_row);
+                GUILayout.BeginHorizontal();
+                GUILayout.Label($"{b.Created:g}", _header, GUILayout.Width(260));
+                GUILayout.Label(b.Reason + (b.Keep ? "  (kept forever)" : ""), b.Keep ? _gold : _label);
+                GUILayout.FlexibleSpace();
+                if (_confirmRestore == b.Folder)
+                {
+                    if (GUILayout.Button("Really restore?", _button, GUILayout.Width(190)))
+                    {
+                        try { Backups.Restore(b); FlashProfiles($"Restored the backup from {b.Created:g}. (Your previous data was backed up first.)"); }
+                        catch (Exception e) { FlashProfiles("Restore failed: " + e.Message); }
+                        _confirmRestore = null;
+                        _backupList = null;
+                        GUILayout.EndHorizontal();
+                        GUILayout.EndVertical();
+                        break;
+                    }
+                    if (GUILayout.Button("No", _button, GUILayout.Width(60))) _confirmRestore = null;
+                }
+                else if (GUILayout.Button("Restore", _button, GUILayout.Width(120))) _confirmRestore = b.Folder;
+                GUILayout.EndHorizontal();
+                GUILayout.Label($"{b.Maps} maps  |  {b.Runs} runs  |  {b.Profiles} profiles  |  mod {b.ModVersion ?? "?"}", _small);
+                GUILayout.EndVertical();
+                GUILayout.Space(3);
+            }
+        }
+
+        private void FlashProfiles(string message)
+        {
+            _flash = message;
+            _flashUntil = Time.unscaledTime + 6f;
+        }
+
+        private void DrawFlash()
+        {
+            if (_flash != null && Time.unscaledTime < _flashUntil) GUILayout.Label(_flash, _gold);
+        }
+
 
         private class FriendEntry
         {
@@ -517,6 +688,9 @@ namespace CouchParty
 
         private static string Km(double meters) => meters >= 1000 ? $"{meters / 1000:0.0} km" : $"{meters:0} m";
 
+        private static string AirTime(double seconds) =>
+            seconds >= 60 ? $"{(int)(seconds / 60)} min {seconds % 60:0} s" : $"{seconds:0.0} s";
+
         private static int WinRate(PlayerStats st) => st.Races > 0 ? Mathf.RoundToInt(100f * st.Wins / st.Races) : 0;
 
         private List<Profile> ProfilesWithStats() =>
@@ -574,6 +748,11 @@ namespace CouchParty
             StatRow("Rams", st.Rams);
             StatRow("Got rammed", st.GotRammed);
             StatRow("Knockouts", st.Knockouts);
+            StatRow("Wheels knocked off", st.WheelsKnockedOff);
+            GUILayout.Space(8);
+            StatGroup("Cats");
+            StatRow("Cats petted", st.CatsPetted);
+            StatRow("Crashes caused by cats", st.CatCrashes);
             GUILayout.EndVertical();
 
             GUILayout.Space(20);
@@ -591,6 +770,9 @@ namespace CouchParty
             StatRow("Distance driven", Km(st.DistanceMeters));
             StatRow("Distance per race", Km(st.Races > 0 ? st.DistanceMeters / st.Races : 0));
             StatRow("Top speed", $"{st.TopSpeedKmh:0} km/h");
+            StatRow("Air time", AirTime(st.AirSeconds));
+            StatRow("Longest jump", $"{st.LongestJumpSeconds:0.0} s");
+            StatRow("Big jumps (1 s+)", st.BigJumps);
             GUILayout.EndVertical();
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
@@ -602,8 +784,7 @@ namespace CouchParty
                 GUILayout.Label("Reset everyone's stats? (Map records are kept.)", _label);
                 if (GUILayout.Button("Yes, reset", _button, GUILayout.Width(150)))
                 {
-                    foreach (var p in Store.Profiles.Profiles) p.Stats = new PlayerStats();
-                    Store.SaveProfiles();
+                    Store.ResetAllStats();
                     _confirmResetStats = false;
                 }
                 if (GUILayout.Button("No", _button, GUILayout.Width(60))) _confirmResetStats = false;
@@ -657,6 +838,8 @@ namespace CouchParty
                 ("PB machine", "Beat their own best time most often", p => p.Stats.PersonalBests, v => $"{v:0} PBs"),
                 ("Speed demon", "Highest top speed ever", p => p.Stats.TopSpeedKmh, v => $"{v:0} km/h"),
                 ("Road tripper", "Longest total distance driven", p => p.Stats.DistanceMeters, v => Km(v)),
+                ("Frequent flyer", "Most total time in the air", p => p.Stats.AirSeconds, v => AirTime(v)),
+                ("Moon landing", "Longest single jump", p => p.Stats.LongestJumpSeconds, v => $"{v:0.0} s"),
                 ("Crash king", "Crashed the most times", p => p.Stats.Crashes, v => $"{v:0} crashes"),
                 ("Wheel donor", "Lost the most wheels", p => p.Stats.WheelsLost, v => $"{v:0} wheels"),
                 ("Limping home", "Most finishes with wheels missing", p => p.Stats.DamagedFinishes, v => $"{v:0} finishes"),
@@ -664,8 +847,11 @@ namespace CouchParty
                 ("Stuntman", "Most finishes on foot, after ejecting from the car", p => p.Stats.OnFootFinishes, v => $"{v:0} on foot finishes"),
                 ("Shortcut hunter", "Crossed the finish but missed checkpoints most often", p => p.Stats.Shortcuts, v => $"{v:0} tries"),
                 ("Bumper car champ", "Drove into other racers the most", p => p.Stats.Rams, v => $"{v:0} rams"),
-                ("Demolition derby", "Most knockouts: a racer crashed within 2 s of bumping into them", p => p.Stats.Knockouts, v => $"{v:0} knockouts"),
+                ("Demolition derby", "Most knockouts: a racer crashed, fell off or had to respawn after bumping into them", p => p.Stats.Knockouts, v => $"{v:0} knockouts"),
+                ("Wheel snatcher", "Knocked the most wheels off other racers", p => p.Stats.WheelsKnockedOff, v => $"{v:0} wheels"),
                 ("Punching bag", "Got rammed by other racers the most", p => p.Stats.GotRammed, v => $"{v:0} times"),
+                ("Cat lover", "Petted the most walking cats (with their car)", p => p.Stats.CatsPetted, v => $"{v:0} cats"),
+                ("Cat's revenge", "Crashed the most after hitting a cat", p => p.Stats.CatCrashes, v => $"{v:0} crashes"),
             };
 
             float col = (_windowRect.width - 90) / 2f;
@@ -747,7 +933,7 @@ namespace CouchParty
                     {
                         if (GUILayout.Button("Really clear this map?", _button, GUILayout.Width(260)))
                         {
-                            Store.Leaderboard.Levels.Remove(kv.Key);
+                            Store.Leaderboard.ClearLevel(kv.Key);
                             Store.SaveLeaderboard();
                             _confirmClearLevel = null;
                         }

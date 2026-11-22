@@ -15,6 +15,7 @@ namespace CouchParty
     {
         private class Live
         {
+            public int Slot;
             public object Player;          // ReadyToReset
             public Component Car;          // New_ControlCar
             public Rigidbody Body;
@@ -36,17 +37,48 @@ namespace CouchParty
             public Vector3 LastVelocity;
             public int LastHitBy = -1;
             public float LastHitTime;
+            public int WheelsKnockedOff;
+            public int CatsPetted;
+            public int CatCrashes;
+            public bool CatArmed;        // hit a cat and not safely back on the ground yet
+            public float CatHitTime;
+
+            // Knockout tracking: armed by a bump, cleared once they're safely back on the ground.
+            public bool KoArmed;
+            public List<object> CustomWheels = new List<object>(); // New_CustomWheel (has isGrounded)
+            public float LastBodyContact = -10f;  // car body touching something that isn't another racer
+            public float GroundedSince = -1f;      // -1 while airborne
+
+            // Air time
+            public float AirStart = -1f;           // -1 while on the ground
+            public double Air;
+            public float LongestJump;
+            public int BigJumps;
         }
+
+        /// <summary>Shorter hops than this aren't counted as air time.</summary>
+        private const float MinJumpSeconds = 0.3f;
+        /// <summary>Jumps at least this long count as big jumps.</summary>
+        private const float BigJumpSeconds = 1f;
 
         /// <summary>Gentler touches than this (relative speed, m/s) don't count as a bump.</summary>
         private const float MinBumpSpeed = 3f;
         /// <summary>One bump per pair of players per this many seconds (no counting a long scrape many times).</summary>
         private const float BumpCooldown = 1f;
-        /// <summary>A crash this soon after a bump is a knockout for the other player.</summary>
+        /// <summary>After a bump, ignore ground contact this long (bouncing around isn't "recovered").</summary>
         private const float KnockoutWindow = 2f;
+        /// <summary>Back on the ground this long (after the window) clears a possible knockout.</summary>
+        private const float RecoveredAfter = 1f;
+        /// <summary>A possible knockout expires after this long no matter what.</summary>
+        private const float MaxKnockoutSeconds = 15f;
+        /// <summary>A wheel breaking this soon after a bump counts as knocked off by the other player.</summary>
+        private const float WheelKnockWindow = 1f;
 
         private static readonly Dictionary<Rigidbody, int> BodyToSlot = new Dictionary<Rigidbody, int>();
         private static readonly Dictionary<int, float> PairLastBump = new Dictionary<int, float>();
+        /// <summary>Last hit per (player, cat), so one hit counts once.</summary>
+        private static readonly Dictionary<(int, int), float> CatLastHit = new Dictionary<(int, int), float>();
+        private const float CatHitCooldown = 2f;
 
         /// <summary>Teleports (respawns) bigger than this per frame are not counted as driving.</summary>
         private const float MaxStepMeters = 25f;
@@ -65,6 +97,7 @@ namespace CouchParty
             Slots.Clear();
             BodyToSlot.Clear();
             PairLastBump.Clear();
+            CatLastHit.Clear();
             _gm = null;
             _nextRefresh = 0;
             _tracking = Game.IsLocalMultiplayer();
@@ -82,13 +115,19 @@ namespace CouchParty
         {
             if (summary == null) { Slots.Clear(); _tracking = false; return; }
 
+            // Still marked as possibly knocked out and never finished: pushed off for good.
+            foreach (var line in summary.Lines)
+                if (!line.CrossedFinish && Slots.TryGetValue(line.Slot, out var victim) && victim.KoArmed)
+                    CreditKnockout(victim, "didn't finish");
+
             var winner = summary.Lines.FirstOrDefault(l => l.Finished);
             bool changed = false;
             foreach (var line in summary.Lines)
             {
                 var profile = Store.GetSlotProfile(line.Slot);
                 if (profile == null) continue;
-                var st = profile.Stats;
+                var st = profile.MyStats; // this PC's entry; totals are summed over all PCs
+                st.Updated = DateTime.UtcNow;
 
                 st.Races++;
                 if (line.Finished)
@@ -112,7 +151,11 @@ namespace CouchParty
             }
             Slots.Clear();
             _tracking = false;
-            if (changed) Store.SaveProfiles();
+            if (changed)
+            {
+                Store.StatsChanged();
+                Store.SaveProfiles();
+            }
         }
 
         private static void CommitLiveOnly()
@@ -122,11 +165,17 @@ namespace CouchParty
             {
                 var profile = Store.GetSlotProfile(kv.Key);
                 if (profile == null) continue;
-                AddLive(profile.Stats, kv.Value);
+                var st = profile.MyStats;
+                st.Updated = DateTime.UtcNow;
+                AddLive(st, kv.Value);
                 changed = true;
             }
             Slots.Clear();
-            if (changed) Store.SaveProfiles();
+            if (changed)
+            {
+                Store.StatsChanged();
+                Store.SaveProfiles();
+            }
         }
 
         /// <summary>Valid finish with wheels missing: bump the 3/2/1/0-wheel counter.</summary>
@@ -153,8 +202,17 @@ namespace CouchParty
             st.Rams += live.Rams;
             st.GotRammed += live.GotRammed;
             st.Knockouts += live.Knockouts;
+            st.WheelsKnockedOff += live.WheelsKnockedOff;
+            st.CatsPetted += live.CatsPetted;
+            st.CatCrashes += live.CatCrashes;
+            live.CatsPetted = live.CatCrashes = 0;
+            st.AirSeconds += live.Air;
+            st.LongestJumpSeconds = Mathf.Max(st.LongestJumpSeconds, live.LongestJump);
+            st.BigJumps += live.BigJumps;
+            live.Air = 0;
+            live.BigJumps = 0;
             live.Crashes = live.WheelsLost = 0;
-            live.Bumps = live.Rams = live.GotRammed = live.Knockouts = 0;
+            live.Bumps = live.Rams = live.GotRammed = live.Knockouts = live.WheelsKnockedOff = 0;
             live.Distance = 0;
         }
 
@@ -194,7 +252,7 @@ namespace CouchParty
 
                 if (!Slots.TryGetValue(slot, out var live) || !ReferenceEquals(live.Player, p) || live.Car == null)
                 {
-                    live = new Live { Player = p };
+                    live = new Live { Player = p, Slot = slot };
                     live.Car = Access.Get<Component>(p, "cc");
                     live.Character = Access.Get<object>(p, "character");
                     if (live.Car != null)
@@ -202,6 +260,10 @@ namespace CouchParty
                         live.Body = live.Car.GetComponent<Rigidbody>() ?? live.Car.GetComponentInParent<Rigidbody>();
                         live.Wheels = live.Car.GetComponentsInChildren<DamageWheel>(true).Cast<Component>().ToList();
                         live.WheelDead = live.Wheels.Select(w => Access.Get(w, "isdead", false)).ToArray();
+                        var custom = Access.List(live.Car, "customWheels");
+                        if (custom != null) live.CustomWheels = custom.Cast<object>().Where(w => w != null).ToList();
+                        if (live.CustomWheels.Count == 0)
+                            live.CustomWheels = live.Wheels.Select(w => Access.Get<object>(w, "theActualWheel")).Where(w => w != null).ToList();
                     }
                     if (live.Body == null) live.Body = Access.Get<Rigidbody>(live.Character, "rb");
                     live.WasDead = Access.Get(live.Character, "isdead", false);
@@ -210,7 +272,8 @@ namespace CouchParty
                 }
 
                 if (!_loggedMapping)
-                    Plugin.Debug($"Stats: PlayersReady[{i}] index={index} -> Player {slot + 1}, car={(live.Car != null)}, body={(live.Body != null)}, wheels={live.Wheels.Count}");
+                    Plugin.Debug($"Stats: PlayersReady[{i}] index={index} -> Player {slot + 1}, car={(live.Car != null)}, body={(live.Body != null)}, " +
+                                 $"wheels={live.Wheels.Count}, ground sensors={live.CustomWheels.Count}");
             }
             _loggedMapping = true;
         }
@@ -237,7 +300,13 @@ namespace CouchParty
         {
             if (!_tracking || collision == null) return;
             var otherBody = collision.rigidbody != null ? collision.rigidbody : collision.collider != null ? collision.collider.attachedRigidbody : null;
-            if (otherBody == null || !BodyToSlot.TryGetValue(otherBody, out int other) || other == slot) return;
+            if (otherBody == null) return;
+            if (!BodyToSlot.TryGetValue(otherBody, out int other))
+            {
+                CheckCat(slot, otherBody, collision);
+                return;
+            }
+            if (other == slot) return;
             if (collision.relativeVelocity.magnitude < MinBumpSpeed) return;
             if (!Slots.TryGetValue(slot, out var a) || !Slots.TryGetValue(other, out var b)) return;
 
@@ -260,30 +329,115 @@ namespace CouchParty
             b.Bumps++;
             rammer.Rams++;
             victim.GotRammed++;
-            a.LastHitBy = other; a.LastHitTime = now;
-            b.LastHitBy = slot;  b.LastHitTime = now;
-            Plugin.Debug($"Bump: Player {slot + 1} and Player {other + 1} at {collision.relativeVelocity.magnitude * 3.6f:0} km/h " +
-                         $"(rammer: Player {(rammer == a ? slot : other) + 1})");
+            a.LastHitBy = other; a.LastHitTime = now; a.KoArmed = true;
+            b.LastHitBy = slot;  b.LastHitTime = now; b.KoArmed = true;
+            Plugin.Debug($"Bump: Player {slot + 1} ({a.LastVelocity.magnitude * 3.6f:0} km/h, {towardsB * 3.6f:0} towards the other) and " +
+                         $"Player {other + 1} ({b.LastVelocity.magnitude * 3.6f:0} km/h, {towardsA * 3.6f:0} towards the other), " +
+                         $"impact {collision.relativeVelocity.magnitude * 3.6f:0} km/h -> rammer: Player {(rammer == a ? slot : other) + 1}");
+        }
+
+        /// <summary>A car hit something that isn't a racer: was it one of the walking cats?</summary>
+        private static void CheckCat(int slot, Rigidbody body, Collision collision)
+        {
+            var cat = body.GetComponentInParent<AnimalController>();
+            if (cat == null || !Slots.TryGetValue(slot, out var live)) return;
+            if (collision.relativeVelocity.magnitude < 1f) return; // resting against it doesn't count
+
+            var key = (slot, cat.GetInstanceID());
+            float now = Time.unscaledTime;
+            if (CatLastHit.TryGetValue(key, out float last) && now - last < CatHitCooldown) return;
+            CatLastHit[key] = now;
+
+            live.CatsPetted++;
+            live.CatArmed = true;
+            live.CatHitTime = now;
+            Plugin.Debug($"Cat petted by Player {slot + 1} at {collision.relativeVelocity.magnitude * 3.6f:0} km/h!");
+        }
+
+        /// <summary>Car body is touching something (OnCollisionStay). Only the track/scenery counts as ground.</summary>
+        public static void OnCarContact(int slot, Collision collision)
+        {
+            if (!_tracking || collision == null || !Slots.TryGetValue(slot, out var live)) return;
+            var otherBody = collision.rigidbody != null ? collision.rigidbody : collision.collider != null ? collision.collider.attachedRigidbody : null;
+            if (otherBody != null && BodyToSlot.ContainsKey(otherBody)) return; // another racer (or own parts) isn't the ground
+            live.LastBodyContact = Time.unscaledTime;
+        }
+
+        private static bool IsGrounded(Live live)
+        {
+            if (Time.unscaledTime - live.LastBodyContact < 0.25f) return true;
+            foreach (var w in live.CustomWheels)
+                if (Access.Get(w, "isGrounded", false)) return true;
+            return false;
+        }
+
+        private static void CreditKnockout(Live victim, string how)
+        {
+            victim.KoArmed = false;
+            if (victim.LastHitBy < 0 || !Slots.TryGetValue(victim.LastHitBy, out var attacker)) return;
+            attacker.Knockouts++;
+            Plugin.Debug($"Knockout! Player {victim.LastHitBy + 1} took out Player {victim.Slot + 1} ({how}).");
         }
 
         private static void Sample(Live live)
         {
-            bool finished = Access.Get(live.Player, "finished", false);
+            // "finished" means the player's round is over (also after dying);
+            // "actuallyFinished" means they really crossed the finish line.
+            bool finished = Access.Get(live.Player, "actuallyFinished", false);
 
             // Crash: the character goes from alive to dead.
             bool dead = Access.Get(live.Character, "isdead", false);
             if (dead && !live.WasDead && !finished)
             {
                 live.Crashes++;
-                // Knocked out by whoever bumped into them just before.
-                if (live.LastHitBy >= 0 && Time.unscaledTime - live.LastHitTime < KnockoutWindow &&
-                    Slots.TryGetValue(live.LastHitBy, out var attacker))
+                if (live.KoArmed) CreditKnockout(live, "crashed");
+                if (live.CatArmed)
                 {
-                    attacker.Knockouts++;
-                    Plugin.Debug($"Knockout! Player {live.LastHitBy + 1} took out a player.");
+                    live.CatArmed = false;
+                    live.CatCrashes++;
+                    Plugin.Debug($"Player {live.Slot + 1} crashed because of a cat!");
                 }
             }
             live.WasDead = dead;
+
+            // Possible knockout: cleared once they're safely back on the ground (or after a long time).
+            float now = Time.unscaledTime;
+            bool grounded = IsGrounded(live);
+            if (!grounded) live.GroundedSince = -1f;
+            else if (live.GroundedSince < 0) live.GroundedSince = now;
+            // Air time: a jump runs from leaving the ground until touching it again (or crashing / finishing).
+            bool airborne = !grounded && !dead && !finished;
+            if (airborne)
+            {
+                if (live.AirStart < 0) live.AirStart = now;
+            }
+            else if (live.AirStart >= 0)
+            {
+                float jump = now - live.AirStart;
+                live.AirStart = -1f;
+                if (jump >= MinJumpSeconds)
+                {
+                    live.Air += jump;
+                    live.LongestJump = Mathf.Max(live.LongestJump, jump);
+                    if (jump >= BigJumpSeconds)
+                    {
+                        live.BigJumps++;
+                        Plugin.Debug($"Player {live.Slot + 1}: {jump:0.0} s of air time!");
+                    }
+                }
+            }
+
+            if (live.CatArmed && !finished)
+            {
+                bool recovered = grounded && now - live.CatHitTime > KnockoutWindow && now - live.GroundedSince >= RecoveredAfter;
+                if (recovered || now - live.CatHitTime > MaxKnockoutSeconds) live.CatArmed = false;
+            }
+
+            if (live.KoArmed && !finished)
+            {
+                bool recovered = grounded && now - live.LastHitTime > KnockoutWindow && now - live.GroundedSince >= RecoveredAfter;
+                if (recovered || now - live.LastHitTime > MaxKnockoutSeconds) live.KoArmed = false;
+            }
             if (live.Body != null) live.LastVelocity = live.Body.velocity;
 
             // Wheels: each wheel going from attached to broken off.
@@ -291,7 +445,16 @@ namespace CouchParty
             {
                 if (live.Wheels[w] == null) continue;
                 bool broken = Access.Get(live.Wheels[w], "isdead", false);
-                if (broken && !live.WheelDead[w] && !finished) live.WheelsLost++;
+                if (broken && !live.WheelDead[w] && !finished)
+                {
+                    live.WheelsLost++;
+                    if (live.LastHitBy >= 0 && now - live.LastHitTime < WheelKnockWindow &&
+                        Slots.TryGetValue(live.LastHitBy, out var sniper))
+                    {
+                        sniper.WheelsKnockedOff++;
+                        Plugin.Debug($"Wheel knocked off! Player {live.LastHitBy + 1} took a wheel from Player {live.Slot + 1}.");
+                    }
+                }
                 live.WheelDead[w] = broken;
             }
 
@@ -303,7 +466,7 @@ namespace CouchParty
                     if (live.Wheels[w] != null && !live.WheelDead[w]) attached++;
                 live.WheelsAtFinish = attached;
                 live.DeadAtFinish = dead;
-                if (dead) Plugin.Debug("On foot finish: crossed the line without the car!");
+                Plugin.Debug($"Player {live.Slot + 1} crossed the finish: {attached} wheel(s) on{(dead ? ", ON FOOT (ejected)" : "")}");
             }
             live.WasFinished = finished;
 
@@ -311,6 +474,9 @@ namespace CouchParty
             Transform t = live.Body != null ? live.Body.transform : live.Car != null ? live.Car.transform : null;
             if (t == null) return;
             var pos = t.position;
+            if (!finished && live.LastPos.HasValue && live.KoArmed &&
+                Vector3.Distance(pos, live.LastPos.Value) >= MaxStepMeters)
+                CreditKnockout(live, "had to respawn");
             if (!finished && !dead && live.LastPos.HasValue)
             {
                 float step = Vector3.Distance(pos, live.LastPos.Value);
@@ -326,6 +492,12 @@ namespace CouchParty
     {
         public int Slot;
 
-        private void OnCollisionEnter(Collision collision) => StatsTracker.OnCarCollision(Slot, collision);
+        private void OnCollisionEnter(Collision collision)
+        {
+            StatsTracker.OnCarCollision(Slot, collision);
+            StatsTracker.OnCarContact(Slot, collision);
+        }
+
+        private void OnCollisionStay(Collision collision) => StatsTracker.OnCarContact(Slot, collision);
     }
 }
