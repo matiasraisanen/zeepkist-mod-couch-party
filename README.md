@@ -114,6 +114,7 @@ Use the same profiles, stats and leaderboards on several PCs, for example at a f
   - Stats are counted per PC and added together.
   - Renames and deletions: the newest change wins.
 - **What stays per PC:** Player 1–4 picks and outfits, since cosmetic unlocks differ between Steam accounts.
+- **Keep every PC on the same mod version.** An older version doesn't know newer stats and would drop them when uploading. So if a PC finds data from a newer version on the server, it only downloads (you still see the latest profiles and times) and shows "update the mod on this PC" until it's updated.
 - **Leaving a friend's PC:** press **Forget on this PC** to stop it syncing. You can also remove that PC's key on the server.
 - **Where settings live:** the server address and key are stored in `BepInEx\config\com.skofdo.couchparty.cfg` on each PC, never in the mod or this repository.
 
@@ -148,7 +149,7 @@ Notes:
 
 Send `BepInEx\LogOutput.log` afterwards. The mod writes `[debug]` lines into it.
 
-- [ ] The log says `Couch Party 0.9.3 loaded`.
+- [ ] The log says `Couch Party 0.9.4 loaded`.
 - [ ] The top-3 popup appears for a few seconds when a race starts, then fades. It doesn't appear on the player-select screen.
 - [ ] F9 during a race shows it again for a few seconds.
 - [ ] Beating the map record shows "NEW MAP RECORD!" right after crossing the finish (or at the latest on the results screen).

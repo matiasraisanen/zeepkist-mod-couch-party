@@ -16,7 +16,7 @@ namespace CouchParty
     {
         public const string Guid = "com.skofdo.couchparty";
         public const string Name = "Couch Party";
-        public const string Version = "0.9.3";
+        public const string Version = "0.9.4";
 
         internal static ManualLogSource Log;
 

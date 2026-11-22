@@ -13,6 +13,12 @@ namespace CouchParty
     public class SyncDoc
     {
         public int Format { get; set; } = 1;
+
+        /// <summary>
+        /// Mod version that last uploaded this data. A PC with an older mod doesn't know newer fields and would
+        /// drop them when uploading, so it only downloads until it's updated (see the version guard in Sync).
+        /// </summary>
+        public string WrittenBy { get; set; }
         public List<Profile> Profiles { get; set; } = new List<Profile>();
         public LeaderboardData Leaderboard { get; set; } = new LeaderboardData();
 
@@ -51,6 +57,16 @@ namespace CouchParty
         private static bool _dirty;
         private static float _dirtySince;
         private static bool _backedUpThisSession;
+        private static bool _warnedOutdated;
+
+        /// <summary>True if version <paramref name="a"/> is newer than <paramref name="b"/> (missing / unreadable = oldest).</summary>
+        public static bool IsNewer(string a, string b)
+        {
+            Version va = null, vb = null;
+            Version.TryParse(a ?? "", out va);
+            Version.TryParse(b ?? "", out vb);
+            return (va ?? new Version(0, 0)) > (vb ?? new Version(0, 0));
+        }
 
         /// <summary>Wait this long after the last change before syncing (several saves in a row become one sync).</summary>
         private const float Debounce = 4f;
@@ -137,8 +153,26 @@ namespace CouchParty
                     }
                     var local = Store.ToSyncDoc();
                     var merged = remote == null ? local : Merge(local, remote);
+                    local.WrittenBy = merged.WrittenBy; // the version stamp alone isn't a change worth saving
                     string mergedJson = merged.ToJson();
                     if (mergedJson != local.ToJson()) Store.ApplySyncDoc(SyncDoc.FromJson(mergedJson));
+
+                    // Version guard: data from a newer mod may contain fields this version doesn't know,
+                    // and uploading would drop them. Keep what we downloaded, but don't upload.
+                    if (remote != null && IsNewer(remote.WrittenBy, Plugin.Version))
+                    {
+                        LastError = $"This PC has Couch Party {Plugin.Version}, but the server's data is from {remote.WrittenBy}. " +
+                                    "Downloaded only; update the mod on this PC to keep syncing.";
+                        if (!_warnedOutdated)
+                        {
+                            _warnedOutdated = true;
+                            try { ZeepSDK.Messaging.MessengerApi.LogWarning($"Couch Party: update the mod on this PC (server data is from {remote.WrittenBy}).", 10f); }
+                            catch { /* messenger not ready */ }
+                        }
+                        yield break;
+                    }
+                    merged.WrittenBy = Plugin.Version;
+                    mergedJson = merged.ToJson();
 
                     // 3) Upload, unless the server already has exactly this.
                     if (remote != null && mergedJson == remote.ToJson())
@@ -209,6 +243,7 @@ namespace CouchParty
                 Leaderboard = MergeLeaderboards(a.Leaderboard, b.Leaderboard, season),
                 SeasonStart = season,
                 ProfilesWipedAt = profilesWiped,
+                WrittenBy = IsNewer(a.WrittenBy, b.WrittenBy) ? a.WrittenBy : b.WrittenBy,
             };
         }
 
