@@ -1,0 +1,106 @@
+# Couch Party: a Zeepkist mod for local multiplayer
+
+Zeepkist's local split-screen calls everyone "Player 1, Player 2…", forgets everything when you quit, and keeps no records. Couch Party fixes that, and adds a few things for bragging rights.
+
+## Features
+
+**🪪 Player profiles**
+- Add friends by typing a name or picking them from your Steam friends list. Profiles use the name they chose, not your nickname for them.
+- Assign who is Player 1–4. Their names show on the player-select screen and in the race.
+- Outfits (soapbox, hat, colour) are remembered and picked for each player automatically next time.
+
+**🏆 Local leaderboards**
+- Every local multiplayer race is saved per map. A time only counts if you pass every checkpoint, so shortcuts don't count.
+- A results panel styled like the game's own screen shows **NEW PB -0.512**, **+1.234 to record**, and a banner when the record falls ("Carol beat Alice's 0:13.000 by 0.754 s").
+- Two views: best time per player, or all runs, so you can see who owns the whole top 10.
+- The map's top 3 pops up when a race starts, and **NEW MAP RECORD!** appears the moment someone crosses the line with a record time.
+
+**📊 Stats and Hall of Fame**
+- Lifetime stats per player:
+  - **Racing:** races, wins and win rate, DNFs, shortcut tries
+  - **Records:** records held and broken, personal bests
+  - **Carnage:** crashes, wheels lost, finishes on 3, 2, 1 or zero wheels, and on foot finishes (ejected, then crossed the line without the car)
+  - **Bumper cars:** bumps, rams, got rammed, knockouts (pushed someone off or into a crash) and wheels knocked off
+  - **Driving:** distance driven, top speed, air time and longest jump
+- A Hall of Fame with gold, silver and bronze in every category: Crash king, Speed demon, Demolition derby, Wheel snatcher, Moon landing, No-wheel hero, Stuntman and more.
+
+**🛠️ Under the hood**
+- A C# BepInEx plugin built on ZeepSDK, with Harmony patches into the game.
+- Everything is stored locally, with nothing online.
+- Press **F8** for the menu, which is styled to match the game.
+
+## Install
+
+Requires **ZeepSDK** (Modkist installs it together with BepInEx).
+
+1. Copy `CouchParty.dll` into `<Zeepkist folder>\BepInEx\plugins\`.
+   The Zeepkist folder is usually `C:\Program Files (x86)\Steam\steamapps\common\Zeepkist`.
+   (In Steam: right-click Zeepkist > Manage > Browse local files.)
+2. Start the game.
+
+## How to use
+
+| Key | What it does |
+|---|---|
+| **F8** | Open/close the Couch Party window |
+| **F9** | Show the current map's top times for a few seconds (during a race) |
+
+1. **Profiles tab:** add your friends by typing a name (Enter adds it) or choosing from Steam friends. Steam profiles use the name your friend chose, not the nickname you gave them. To rename, press **Rename**, type, then press **Enter** (Esc cancels).
+2. Go to the player-select screen and let everyone join as usual.
+3. **Players tab:** choose a profile for Player 1, 2, 3 and 4. The game now shows those names instead of "Player N". Your picks are remembered for next time.
+4. **Outfits are automatic.** Whatever a player picks on the player-select screen is saved to their profile when the race starts. Next time that player joins, their saved outfit is selected for them; they can still change it, and the new choice is saved instead.
+5. Race. When the results screen opens, the mod's panel covers the game's "Race Results" column with this race's times and the map's top 10. Each line is tagged: **MAP RECORD!** (plus a banner saying whose record was beaten and by how much), **NEW PB -0.512** (how much you improved), or **+1.234 to record** (the gap to the record). The map's top 10 shows **best per player** by default. Press **F9** (or click the header) to switch to **all runs**, where one player can appear several times.
+
+6. **Leaderboard tab:** every map, with the same "Best per player" / "All runs" switch. **x** removes one time (or all of a player's times in the per-player view).
+7. **Stats tab:** pick a player to see their stats in groups (Racing, Records, Carnage, Driving) with a win-rate bar.
+8. **Hall of Fame tab:** the top 3 (gold, silver, bronze) in each category: wins, win rate (3+ races), records held/broken, PBs, top speed, distance, air time (Frequent flyer), longest jump (Moon landing), crashes, wheels lost, finishes missing wheels, no-wheel finishes, on foot finishes (Stuntman), shortcut tries, rams (Bumper car champ), knockouts (Demolition derby), wheels knocked off (Wheel snatcher), got rammed (Punching bag).
+
+Stats tracked: lifetime stats per profile (races, wins and win %, finishes, DNFs, shortcut tries, personal bests, map records broken and held, crashes, wheels lost, finishes on 3 / 2 / 1 / 0 wheels, on foot finishes (ejected, then crossed the line without the car), bumps with other racers, rams, got rammed, knockouts (after bumping into you, someone crashed, fell off the map or had to respawn before getting back on track), wheels knocked off (another racer lost a wheel right after bumping into you), distance driven, top speed, air time (total, longest jump, big jumps of 1 s+), total time on the clock).
+
+Leaderboard entries are linked to the profile, not the name, so renaming a profile renames all their old records too.
+
+Notes:
+- Only **local multiplayer** races (2+ players, not online) are recorded.
+- Only players **with a profile** get their times saved.
+- A time only counts if the player passed **every checkpoint** (shortcuts show as "missed checkpoint" and aren't saved).
+- Races are always recorded. F9 only shows the current map's top times.
+- When a race starts, the map's top 3 shows for a few seconds. When someone beats the map record, a "NEW MAP RECORD!" popup appears.
+- While the mouse is over the Couch Party window (or you're typing in it), the game ignores clicks and key presses, for everyone, including controllers.
+- Remove a single time with the **x** next to it in the Leaderboard tab.
+- Outfits can only use cosmetics that the Steam account running the game has unlocked.
+- Saved data lives in `%AppData%\Zeepkist\Mods\com.skofdo.couchparty\` (`profiles.json`, `leaderboard.json`).
+- Key bindings and options are in `BepInEx\config\com.skofdo.couchparty.cfg`.
+
+## Testing checklist
+
+Send `BepInEx\LogOutput.log` afterwards. The mod writes `[debug]` lines into it.
+
+- [ ] The log says `Couch Party 0.7.0 loaded`.
+- [ ] The top-3 popup appears for a few seconds when a race starts, then fades. It doesn't appear on the player-select screen.
+- [ ] F9 during a race shows it again for a few seconds.
+- [ ] Beating the map record shows "NEW MAP RECORD!" right after crossing the finish (or at the latest on the results screen).
+- [ ] With the F8 window open, clicking inside it no longer clicks game buttons behind it.
+- [ ] The log has `Scene: '...'` lines. Send them if popups never appear.
+- [ ] Crossing the finish logs `Player N crossed the finish: X wheel(s) on` (plus `ON FOOT` after ejecting). Dying without finishing logs nothing.
+- [ ] After a race, the Stats tab shows races, crashes, distance and top speed. The log has `Stats: PlayersReady[...] -> Player N` lines; check they match who was who.
+- [ ] Big jumps log `Player N: 1.4 s of air time!`; the Stats tab shows air time and longest jump.
+- [ ] Knockouts log `Knockout! Player X took out Player Y (...)`, and wheels knocked off log `Wheel knocked off! ...`.
+- [ ] Top speed looks about right compared to the in-game speedometer.
+
+If times end up next to the wrong players, set `Player number base` in the config file to `0` or `1` (default `-1` = automatic) and tell me which one worked.
+
+## Building from source
+
+Needs the .NET SDK (6 or newer).
+
+```bash
+dotnet build -c Release
+```
+
+By default the build looks for BepInEx in `C:\Program Files (x86)\Steam\steamapps\common\Zeepkist\BepInEx\core`. If your game is elsewhere, pass the path:
+
+```bash
+dotnet build -c Release -p:BepInExCoreDir="D:\SteamLibrary\steamapps\common\Zeepkist\BepInEx\core"
+```
+
+The output is `bin\Release\CouchParty.dll`.
