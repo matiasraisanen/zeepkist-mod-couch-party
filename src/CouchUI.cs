@@ -409,7 +409,7 @@ namespace CouchParty
                 GUILayout.EndHorizontal();
 
                 var st = p.Stats;
-                GUILayout.Label($"{st.Races} races  |  {st.Wins} wins  |  {RecordsHeld(p)} map records held", _small);
+                GUILayout.Label($"{RecordsHeld(p)} map records held  |  {st.Races} races", _small);
                 GUILayout.EndVertical();
                 GUILayout.Space(4);
             }
@@ -743,11 +743,12 @@ namespace CouchParty
         private static string AirTime(double seconds) =>
             seconds >= 60 ? $"{(int)(seconds / 60)} min {seconds % 60:0} s" : $"{seconds:0.0} s";
 
-        private static int WinRate(PlayerStats st) => st.Races > 0 ? Mathf.RoundToInt(100f * st.Wins / st.Races) : 0;
+        /// <summary>Maps that have a record at all (someone has a valid time there).</summary>
+        private static int MapsWithRecords() => Store.Leaderboard.Levels.Values.Count(l => l.Best.Count > 0);
 
         private List<Profile> ProfilesWithStats() =>
             Store.Profiles.Profiles.Where(p => p.Stats != null && p.Stats.Races > 0)
-                .OrderByDescending(p => p.Stats.Wins).ThenByDescending(p => p.Stats.Races).ToList();
+                .OrderByDescending(p => RecordsHeld(p)).ThenByDescending(p => p.Stats.Races).ToList();
 
         private void DrawStatsTab()
         {
@@ -774,9 +775,11 @@ namespace CouchParty
             GUILayout.BeginHorizontal();
             GUILayout.Label(selected.Name, _title);
             GUILayout.FlexibleSpace();
-            GUILayout.Label($"{st.Wins} wins in {st.Races} races", _gold);
+            int held = RecordsHeld(selected), maps = MapsWithRecords();
+            GUILayout.Label($"{st.Races} races", _gold);
             GUILayout.EndHorizontal();
-            ProgressBar($"Win rate {WinRate(st)}%", WinRate(st) / 100f);
+            // The headline: how many maps this player has the #1 fastest time on.
+            ProgressBar(maps > 0 ? $"Holds {held} of {maps} map records" : "No map records yet", maps > 0 ? (float)held / maps : 0f);
             GUILayout.Space(8);
 
             // Groups of (label, value) rows, laid out in 3 columns on a wide window (fits 16:9 without scrolling), else 2.
@@ -870,9 +873,8 @@ namespace CouchParty
 
             var categories = new List<(string title, string about, Func<Profile, double> value, Func<double, string> format)>
             {
+                ("Record hoarder", "Holds the #1 time on the most maps right now", p => RecordsHeld(p), v => $"{v:0} maps"),
                 ("Most wins", "Most races won", p => p.Stats.Wins, v => $"{v:0} wins"),
-                ("Best win rate", "Highest share of races won (3+ races)", p => p.Stats.Races >= 3 ? WinRate(p.Stats) : 0, v => $"{v:0}%"),
-                ("Record hoarder", "Holds the most map records right now", p => RecordsHeld(p), v => $"{v:0} maps"),
                 ("Record breaker", "Broke an existing map record most often", p => p.Stats.RecordsBroken, v => $"{v:0} records"),
                 ("PB machine", "Beat their own best time most often", p => p.Stats.PersonalBests, v => $"{v:0} PBs"),
                 ("Speed demon", "Highest top speed ever", p => p.Stats.TopSpeedKmh, v => $"{v:0} km/h"),

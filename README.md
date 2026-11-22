@@ -17,7 +17,7 @@ Zeepkist's local split-screen calls everyone "Player 1, Player 2…", forgets ev
 
 **📊 Stats and Hall of Fame**
 - Lifetime stats per player:
-  - **Racing:** races, wins and win rate, DNFs, shortcut tries
+  - **Racing:** races, wins, DNFs, shortcut tries
   - **Records:** records held and broken, personal bests
   - **Carnage:** crashes, wheels lost, finishes on 3, 2, 1 or zero wheels, and on foot finishes (ejected, then crossed the line without the car)
   - **Bumper cars:** bumps, rams, got rammed, knockouts (pushed someone off or into a crash) and wheels knocked off
@@ -52,10 +52,10 @@ Requires **ZeepSDK** (Modkist installs it together with BepInEx).
 5. Race. When the results screen opens, the mod's panel covers the game's "Race Results" column with this race's times and the map's top 10. Each line is tagged: **MAP RECORD!** (plus a banner saying whose record was beaten and by how much), **NEW PB -0.512** (how much you improved), or **+1.234 to record** (the gap to the record). The map's top 10 shows **best per player** by default. Press **F9** (or click the header) to switch to **all runs**, where one player can appear several times.
 
 6. **Leaderboard tab:** every map, with the same "Best per player" / "All runs" switch. **x** removes one time (or all of a player's times in the per-player view).
-7. **Stats tab:** pick a player to see their stats in groups (Racing, Records, Carnage, Driving) with a win-rate bar.
-8. **Hall of Fame tab:** the top 3 (gold, silver, bronze) in each category: wins, win rate (3+ races), records held/broken, PBs, top speed, distance, air time (Frequent flyer), longest jump (Moon landing), hard crashes (Crash king), ejects (Ejector seat), timeouts (Snail), wheels lost, finishes missing wheels, no-wheel finishes, on foot finishes (Stuntman), shortcut tries, rams (Bumper car champ), knockouts (Demolition derby), wheels knocked off (Wheel snatcher), got rammed (Punching bag), cats hugged (Cat lover), crashes caused by cats (Cat's revenge).
+7. **Stats tab:** pick a player to see their stats in groups. The headline is how many maps they hold the #1 time on ("Holds 5 of 8 map records").
+8. **Hall of Fame tab:** the top 3 (gold, silver, bronze) in each category: records held (Record hoarder), wins, records broken, PBs, top speed, distance, air time (Frequent flyer), longest jump (Moon landing), hard crashes (Crash king), ejects (Ejector seat), timeouts (Snail), wheels lost, finishes missing wheels, no-wheel finishes, on foot finishes (Stuntman), shortcut tries, rams (Bumper car champ), knockouts (Demolition derby), wheels knocked off (Wheel snatcher), got rammed (Punching bag), cats hugged (Cat lover), crashes caused by cats (Cat's revenge).
 
-Stats tracked: lifetime stats per profile (races, wins and win %, finishes, DNFs, shortcut tries, personal bests, map records broken and held, crashes (including ejects and timeouts), wheels lost, finishes on 3 / 2 / 1 / 0 wheels, on foot finishes (ejected, then crossed the line without the car), bumps with other racers, rams, got rammed, knockouts (someone crashed or didn't finish soon after bumping into you), wheels knocked off (another racer lost a wheel right after bumping into you), cats hugged (walking cats hit by your car), crashes caused by cats, distance driven, top speed, air time (total, longest jump, big jumps of 1 s+), total time on the clock).
+Stats tracked: lifetime stats per profile (races, wins, finishes, DNFs, shortcut tries, personal bests, map records broken and held, crashes (including ejects and timeouts), wheels lost, finishes on 3 / 2 / 1 / 0 wheels, on foot finishes (ejected, then crossed the line without the car), bumps with other racers, rams, got rammed, knockouts (someone crashed or didn't finish soon after bumping into you), wheels knocked off (another racer lost a wheel right after bumping into you), cats hugged (walking cats hit by your car), crashes caused by cats, distance driven, top speed, air time (total, longest jump, big jumps of 1 s+), total time on the clock).
 
 Leaderboard entries are linked to the profile, not the name, so renaming a profile renames all their old records too.
 
@@ -149,7 +149,7 @@ Notes:
 
 Send `BepInEx\LogOutput.log` afterwards. The mod writes `[debug]` lines into it.
 
-- [ ] The log says `Couch Party 0.9.4 loaded`.
+- [ ] The log says `Couch Party 0.9.5 loaded`.
 - [ ] The top-3 popup appears for a few seconds when a race starts, then fades. It doesn't appear on the player-select screen.
 - [ ] F9 during a race shows it again for a few seconds.
 - [ ] Beating the map record shows "NEW MAP RECORD!" right after crossing the finish (or at the latest on the results screen).
