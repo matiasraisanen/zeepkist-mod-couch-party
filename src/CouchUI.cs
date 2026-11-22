@@ -787,7 +787,7 @@ namespace CouchParty
             var records = new (string, object)[] { ("Map records held", RecordsHeld(selected)), ("Records broken", st.RecordsBroken), ("Personal bests", st.PersonalBests), ("Time on the clock", Game.FormatDuration(st.FinishTimeSeconds)) };
             var carnage = new (string, object)[] { ("Crashes", st.Crashes), ("   hard crashes", st.HardCrashes), ("   ejects", st.Ejects), ("   timeouts", st.Timeouts), ("Wheels lost", st.WheelsLost), ("3-wheel finishes", st.ThreeWheelFinishes), ("2-wheel finishes", st.TwoWheelFinishes), ("1-wheel finishes", st.OneWheelFinishes), ("No-wheel finishes", st.ZeroWheelFinishes), ("On foot finishes", st.OnFootFinishes) };
             var driving = new (string, object)[] { ("Distance driven", Km(st.DistanceMeters)), ("Distance per race", Km(st.Races > 0 ? st.DistanceMeters / st.Races : 0)), ("Top speed", $"{st.TopSpeedKmh:0} km/h"), ("Air time", AirTime(st.AirSeconds)), ("Longest jump", $"{st.LongestJumpSeconds:0.0} s"), ("Big jumps (1 s+)", st.BigJumps) };
-            var bumper = new (string, object)[] { ("Bumps", st.Bumps), ("Rams", st.Rams), ("Got rammed", st.GotRammed), ("Knockouts", st.Knockouts), ("Wheels knocked off", st.WheelsKnockedOff) };
+            var bumper = new (string, object)[] { ("Car-to-car hits", st.CarToCarHits), ("Rammed others", st.RammedOthers), ("Got rammed", st.GotRammed), ("Knockouts", st.Knockouts), ("Wheels knocked off", st.WheelsKnockedOff) };
             var cats = new (string, object)[] { ("Cats hugged", st.CatsHugged), ("Crashes caused by cats", st.CatCrashes) };
 
             var columns = Wide
@@ -889,8 +889,8 @@ namespace CouchParty
                 ("No-wheel hero", "Most finishes with no wheels left", p => p.Stats.ZeroWheelFinishes, v => $"{v:0} finishes"),
                 ("Stuntman", "Most finishes on foot, after ejecting from the car", p => p.Stats.OnFootFinishes, v => $"{v:0} on foot finishes"),
                 ("Shortcut hunter", "Crossed the finish but missed checkpoints most often", p => p.Stats.Shortcuts, v => $"{v:0} tries"),
-                ("Bumper car champ", "Drove into other racers the most", p => p.Stats.Rams, v => $"{v:0} rams"),
-                ("Demolition derby", "Most knockouts: a racer crashed or didn't finish soon after bumping into them", p => p.Stats.Knockouts, v => $"{v:0} knockouts"),
+                ("Bumper car champ", "Rammed other racers the most", p => p.Stats.RammedOthers, v => $"{v:0} rams"),
+                ("Demolition derby", "Most knockouts: a racer crashed or didn't finish soon after a car-to-car hit with them", p => p.Stats.Knockouts, v => $"{v:0} knockouts"),
                 ("Wheel snatcher", "Knocked the most wheels off other racers", p => p.Stats.WheelsKnockedOff, v => $"{v:0} wheels"),
                 ("Punching bag", "Got rammed by other racers the most", p => p.Stats.GotRammed, v => $"{v:0} times"),
                 ("Cat lover", "Hugged the most walking cats (with their car)", p => p.Stats.CatsHugged, v => $"{v:0} cats"),

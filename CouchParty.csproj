@@ -6,7 +6,7 @@
     <RootNamespace>CouchParty</RootNamespace>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
-    <Version>0.9.5</Version>
+    <Version>1.0.0</Version>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
@@ -22,6 +22,12 @@
   <PropertyGroup>
     <BepInExCoreDir Condition="'$(BepInExCoreDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Zeepkist\BepInEx\core</BepInExCoreDir>
   </PropertyGroup>
+
+  <!-- The tests are their own project; keep them out of the mod. -->
+  <ItemGroup>
+    <Compile Remove="tests/**" />
+    <None Remove="tests/**" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" PrivateAssets="all" />

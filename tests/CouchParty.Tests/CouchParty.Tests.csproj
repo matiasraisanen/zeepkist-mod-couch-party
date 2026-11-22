@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Tests for Couch Party's sync merge rules, save-file conversion, Start fresh and the version guard.
+    They load the compiled mod, so build it first (from the repo root), then run this project.
+    The exact commands are in tests/README.md.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <!-- The mod targets .NET Framework 4.7.2; loading it here is fine for this pure data logic. -->
+    <NoWarn>MSB3277;NU1701</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="CouchParty">
+      <HintPath>../../bin/Release/CouchParty.dll</HintPath>
+    </Reference>
+    <!-- The game's own Newtonsoft.Json is a stripped reference copy, so use the real one for running tests. -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+</Project>

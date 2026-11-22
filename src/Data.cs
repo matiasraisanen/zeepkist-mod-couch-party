@@ -113,8 +113,8 @@ namespace CouchParty
         public int OnFootFinishes { get; set; }
 
         // Bumper cars: collisions with other racers.
-        public int Bumps { get; set; }
-        public int Rams { get; set; }        // you drove into them
+        public int CarToCarHits { get; set; }      // hits with another racer's car (you're both counted)
+        public int RammedOthers { get; set; }      // of those: you drove into them
         public int GotRammed { get; set; }   // they drove into you
         public int Knockouts { get; set; }   // someone crashed or didn't finish soon after bumping into you
         public int WheelsKnockedOff { get; set; } // wheels other racers lost right after bumping into you
@@ -149,7 +149,7 @@ namespace CouchParty
                 t.ThreeWheelFinishes += s.ThreeWheelFinishes; t.TwoWheelFinishes += s.TwoWheelFinishes;
                 t.OneWheelFinishes += s.OneWheelFinishes; t.ZeroWheelFinishes += s.ZeroWheelFinishes;
                 t.OnFootFinishes += s.OnFootFinishes;
-                t.Bumps += s.Bumps; t.Rams += s.Rams; t.GotRammed += s.GotRammed; t.Knockouts += s.Knockouts;
+                t.CarToCarHits += s.CarToCarHits; t.RammedOthers += s.RammedOthers; t.GotRammed += s.GotRammed; t.Knockouts += s.Knockouts;
                 t.WheelsKnockedOff += s.WheelsKnockedOff;
                 t.CatsHugged += s.CatsHugged;
                 t.CatCrashes += s.CatCrashes;

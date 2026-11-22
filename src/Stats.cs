@@ -33,7 +33,7 @@ namespace CouchParty
             public float TopSpeed;
 
             // Bumper cars
-            public int Bumps, Rams, GotRammed, Knockouts;
+            public int CarToCarHits, RammedOthers, GotRammed, Knockouts;
             public Vector3 LastVelocity;
             public int LastHitBy = -1;
             public float LastHitTime;
@@ -207,8 +207,8 @@ namespace CouchParty
             st.WheelsLost += live.WheelsLost;
             st.DistanceMeters += live.Distance;
             st.TopSpeedKmh = Mathf.Max(st.TopSpeedKmh, live.TopSpeed);
-            st.Bumps += live.Bumps;
-            st.Rams += live.Rams;
+            st.CarToCarHits += live.CarToCarHits;
+            st.RammedOthers += live.RammedOthers;
             st.GotRammed += live.GotRammed;
             st.Knockouts += live.Knockouts;
             st.WheelsKnockedOff += live.WheelsKnockedOff;
@@ -221,7 +221,7 @@ namespace CouchParty
             live.Air = 0;
             live.BigJumps = 0;
             live.Crashes = live.Ejects = live.Timeouts = live.WheelsLost = 0;
-            live.Bumps = live.Rams = live.GotRammed = live.Knockouts = live.WheelsKnockedOff = 0;
+            live.CarToCarHits = live.RammedOthers = live.GotRammed = live.Knockouts = live.WheelsKnockedOff = 0;
             live.Distance = 0;
         }
 
@@ -348,13 +348,13 @@ namespace CouchParty
             var rammer = towardsB >= towardsA ? a : b;
             var victim = rammer == a ? b : a;
 
-            a.Bumps++;
-            b.Bumps++;
-            rammer.Rams++;
+            a.CarToCarHits++;
+            b.CarToCarHits++;
+            rammer.RammedOthers++;
             victim.GotRammed++;
             a.LastHitBy = other; a.LastHitTime = now; a.KoArmed = true;
             b.LastHitBy = slot;  b.LastHitTime = now; b.KoArmed = true;
-            Plugin.Debug($"Bump: Player {slot + 1} ({a.LastVelocity.magnitude * 3.6f:0} km/h, {towardsB * 3.6f:0} towards the other) and " +
+            Plugin.Debug($"Car-to-car hit: Player {slot + 1} ({a.LastVelocity.magnitude * 3.6f:0} km/h, {towardsB * 3.6f:0} towards the other) and " +
                          $"Player {other + 1} ({b.LastVelocity.magnitude * 3.6f:0} km/h, {towardsA * 3.6f:0} towards the other), " +
                          $"impact {collision.relativeVelocity.magnitude * 3.6f:0} km/h -> rammer: Player {(rammer == a ? slot : other) + 1}");
         }
