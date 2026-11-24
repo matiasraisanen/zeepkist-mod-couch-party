@@ -51,6 +51,7 @@ namespace CouchParty
         private float _flashUntil;
         private string _statsProfileId;
         private bool _lbAllRuns;        // Leaderboard tab: all runs instead of best per player
+        private bool _statsTonight;     // Stats tab: tonight's stats instead of all time
         private bool _resultsAllRuns;   // results screen: same
 
         // Overlays
@@ -172,13 +173,11 @@ namespace CouchParty
             if (InGameScene) StatsTracker.Tick();
             Sync.Tick(this);
 
-            // F9: on the results screen, switch best-per-player / all runs.
-            // Otherwise show the top times for a few seconds (press again to hide). Only while racing.
-            if (Input.GetKeyDown(Plugin.ShowRecordsKey.Value) && InGameScene)
+            // F9 switches views: on the Stats tab all time / tonight, on the results screen best per player / all runs.
+            if (Input.GetKeyDown(Plugin.SwitchViewKey.Value))
             {
-                if (_results != null) _resultsAllRuns = !_resultsAllRuns;
-                else if (PopupVisible) _popupUntil = 0;
-                else ShowPreRace();
+                if (_open && _tab == Tab.Stats) _statsTonight = !_statsTonight;
+                else if (_results != null && InGameScene) _resultsAllRuns = !_resultsAllRuns;
             }
         }
 
@@ -278,7 +277,9 @@ namespace CouchParty
             }
             GUILayout.EndScrollView();
 
-            GUILayout.Label($"{Plugin.ToggleWindowKey.Value}: open/close this window   {Plugin.ShowRecordsKey.Value}: show this map's top times (races are always recorded)", _small);
+            GUILayout.Label(_tab == Tab.Stats
+                ? $"{Plugin.ToggleWindowKey.Value}: open/close this window   {Plugin.SwitchViewKey.Value}: switch all time / tonight"
+                : $"{Plugin.ToggleWindowKey.Value}: open/close this window", _small);
             GUI.DragWindow(new Rect(0, 0, 10000, 50));
         }
 
@@ -778,23 +779,42 @@ namespace CouchParty
             }
             GUILayout.Space(8);
 
-            var st = selected.Stats;
+            // All time, or tonight (same evening as the Tonight tab: this PC only, new after hours without racing).
+            bool tonight = _statsTonight;
+            var st = tonight ? Session.StatsOrNull(selected.Id) ?? new PlayerStats() : selected.Stats;
             GUILayout.BeginVertical(_row);
             GUILayout.BeginHorizontal();
             GUILayout.Label(selected.Name, _title);
             GUILayout.FlexibleSpace();
-            int held = RecordsHeld(selected), maps = MapsWithRecords();
-            GUILayout.Label($"{st.Races} races", _gold);
+            GUILayout.Label(tonight ? $"{st.Races} races tonight" : $"{st.Races} races", _gold);
+            GUILayout.Space(16);
+            if (GUILayout.Button("All time", !tonight ? _tabOn : _tabOff, GUILayout.Width(130))) _statsTonight = false;
+            if (GUILayout.Button("Tonight", tonight ? _tabOn : _tabOff, GUILayout.Width(130))) _statsTonight = true;
             GUILayout.EndHorizontal();
-            // The headline: how many maps this player has the #1 fastest time on.
-            ProgressBar(maps > 0 ? $"Holds {held} of {maps} map records" : "No map records yet", maps > 0 ? (float)held / maps : 0f);
+            // The headline: all time, how many maps this player has the #1 time on;
+            // tonight, on how many of tonight's maps they have the fastest time of the evening.
+            int held, maps;
+            string headline;
+            if (tonight)
+            {
+                held = Session.FastestOn(selected.Id);
+                maps = Session.MapsTonight;
+                headline = maps > 0 ? $"Fastest on {held} of {maps} map{(maps == 1 ? "" : "s")} tonight" : "No maps raced yet tonight";
+            }
+            else
+            {
+                held = RecordsHeld(selected);
+                maps = MapsWithRecords();
+                headline = maps > 0 ? $"Holds {held} of {maps} map records" : "No map records yet";
+            }
+            ProgressBar(headline, maps > 0 ? (float)held / maps : 0f);
             GUILayout.Space(8);
 
             // Groups of (label, value) rows, laid out in 3 columns on a wide window (fits 16:9 without scrolling), else 2.
             var racing = new (string, object)[] { ("Races", st.Races), ("Wins", st.Wins), ("DNFs", st.Dnfs) };
             // Every kind of finish in one place: valid finishes with their special cases indented, then shortcuts.
             var finishes = new (string, object)[] { ("Finishes", st.Finishes), ("   3-wheel", st.ThreeWheelFinishes), ("   2-wheel", st.TwoWheelFinishes), ("   1-wheel", st.OneWheelFinishes), ("   no-wheel", st.ZeroWheelFinishes), ("   on foot", st.OnFootFinishes), ("   reverse", st.ReverseFinishes), ("Shortcut finishes", st.ShortcutFinishes) };
-            var records = new (string, object)[] { ("Map records held", RecordsHeld(selected)), ("Records broken", st.RecordsBroken), ("Personal bests", st.PersonalBests), ("Time on the clock", Game.FormatDuration(st.FinishTimeSeconds)) };
+            var records = new (string, object)[] { (tonight ? "Fastest on (maps)" : "Map records held", held), ("Records broken", st.RecordsBroken), ("Personal bests", st.PersonalBests), ("Time on the clock", Game.FormatDuration(st.FinishTimeSeconds)) };
             var carnage = new (string, object)[] { ("Crashes", st.Crashes), ("   hard crashes", st.HardCrashes), ("   ejects", st.Ejects), ("   timeouts", st.Timeouts), ("Wheels lost", st.WheelsLost) };
             var driving = new (string, object)[] { ("Distance driven", Km(st.DistanceMeters)), ("Distance per race", Km(st.Races > 0 ? st.DistanceMeters / st.Races : 0)), ("Top speed", $"{st.TopSpeedKmh:0} km/h"), ("Air time", AirTime(st.AirSeconds)), ("Longest jump", $"{st.LongestJumpSeconds:0.0} s"), ("Big jumps (1 s+)", st.BigJumps) };
             var bumper = new (string, object)[] { ("Car-to-car hits", st.CarToCarHits), ("Rammed others", st.RammedOthers), ("Got rammed", st.GotRammed), ("Knockouts", st.Knockouts), ("Wheels knocked off", st.WheelsKnockedOff) };
@@ -830,6 +850,8 @@ namespace CouchParty
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
 
+            // Resetting is about lifetime stats; tonight has "Start a new evening" on the Tonight tab.
+            if (tonight) return;
             GUILayout.Space(10);
             if (_confirmResetStats)
             {
@@ -1205,7 +1227,7 @@ namespace CouchParty
             GUI.DrawTexture(sectionRect, _texTitleBand);
             string view = _resultsAllRuns ? "all runs" : "best per player";
             ShadowLabel(sectionRect, $"Map Records: {view}", _ovTitleMid);
-            ShadowLabel(new Rect(sectionRect.x, sectionRect.y, sectionRect.width - 12, recHeadH), $"{Plugin.ShowRecordsKey.Value}: switch", _ovTagDim);
+            ShadowLabel(new Rect(sectionRect.x, sectionRect.y, sectionRect.width - 12, recHeadH), $"{Plugin.SwitchViewKey.Value}: switch", _ovTagDim);
             if (GUI.Button(sectionRect, GUIContent.none, GUIStyle.none)) _resultsAllRuns = !_resultsAllRuns;
             y += recHeadH;
 

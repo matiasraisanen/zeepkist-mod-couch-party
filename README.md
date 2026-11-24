@@ -24,12 +24,36 @@ Zeepkist's local split-screen calls everyone "Player 1, Player 2…", forgets ev
   - **Bumper cars:** car-to-car hits, rammed others, got rammed, knockouts (rammed someone off or into a crash) and wheels knocked off
   - **Driving:** distance driven, top speed, air time and longest jump
   - **Stunts:** front flips, backflips and barrel rolls landed, flat spins (180s, 360s, 720s and 1080s, plus the biggest in exact degrees)
+- Switch the Stats tab between **all time** and **tonight** (a button, or F9).
 - A Hall of Fame with gold, silver and bronze in every category: Crash king, Speed demon, Demolition derby, Wheel snatcher, Moon landing, Acrobat, Spin doctor, Moonwalker, No-wheel hero, Stuntman and more.
 
 **🛠️ Under the hood**
 - A C# BepInEx plugin built on ZeepSDK, with Harmony patches into the game.
 - Everything is stored locally, with nothing online.
 - Press **F8** for the menu, which is styled to match the game.
+
+## What it looks like
+
+These are mockups at 1080p with four players. In the game, the background is the game itself. Click an image for the full size.
+
+<table>
+  <tr>
+    <td colspan="2" align="center">
+      <a href="docs/images/results.png"><img src="docs/images/results.png" width="640" alt="Results screen: this race, the map's records, this map tonight, this race's stats and moments, tonight's standings"></a><br>
+      The results screen
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="docs/images/stats.png"><img src="docs/images/stats.png" width="400" alt="F8 window, Stats tab: one player's stats in groups, with All time and Tonight buttons"></a><br>
+      F8 &gt; Stats
+    </td>
+    <td align="center">
+      <a href="docs/images/hall-of-fame.png"><img src="docs/images/hall-of-fame.png" width="400" alt="F8 window, Hall of Fame tab: gold, silver and bronze in every category"></a><br>
+      F8 &gt; Hall of Fame
+    </td>
+  </tr>
+</table>
 
 ## Install
 
@@ -45,7 +69,7 @@ Requires **ZeepSDK** (Modkist installs it together with BepInEx).
 | Key | What it does |
 |---|---|
 | **F8** | Open/close the Couch Party window |
-| **F9** | Show the current map's top times for a few seconds (during a race) |
+| **F9** | Switch view: on the Stats tab between **all time** and **tonight**; on the results screen between **best per player** and **all runs** |
 
 1. **Profiles tab:** add your friends by typing a name (Enter adds it) or choosing from Steam friends. Steam profiles use the name your friend chose, not the nickname you gave them. To rename, press **Rename**, type, then press **Enter** (Esc cancels).
 2. Go to the player-select screen and let everyone join as usual.
@@ -59,7 +83,7 @@ Requires **ZeepSDK** (Modkist installs it together with BepInEx).
 
    A new evening starts after 6 hours without racing (`New evening after hours` in the config); restarting the game in between doesn't reset it.
 6. **Leaderboard tab:** every map, with the same "Best per player" / "All runs" switch. **x** removes one time (or all of a player's times in the per-player view).
-7. **Stats tab:** pick a player to see their stats in groups. The headline is how many maps they hold the #1 time on ("Holds 5 of 8 map records").
+7. **Stats tab:** pick a player to see their stats in groups. The headline is how many maps they hold the #1 time on ("Holds 5 of 8 map records"). Click **Tonight** (or press **F9**) to see only this evening's stats. Tonight counts the same evening as the Tonight tab: this PC only, and it starts over after 6 hours without racing. In tonight's view the headline is on how many of tonight's maps the player has the fastest time ("Fastest on 2 of 6 maps tonight"), and **Map records held** becomes **Fastest on (maps)**. Click **All time** (or press **F9** again) to go back.
 8. **Tonight tab:** the evening's standings and **every map played tonight** (newest first) with who's fastest on it, plus a **Start a new evening** button.
 9. **Hall of Fame tab:** the top 3 (gold, silver, bronze) in each category: records held (Record hoarder), wins, records broken, PBs, top speed, distance, air time (Frequent flyer), longest jump (Moon landing), flips landed (Acrobat), barrel rolls landed (Corkscrew), biggest spin in exact degrees (Spin doctor), reverse finishes (Moonwalker), hard crashes (Crash king), ejects (Ejector seat), timeouts (Snail), wheels lost, finishes missing wheels, no-wheel finishes, on foot finishes (Stuntman), shortcut finishes, rammed others (Bumper car champ), knockouts (Demolition derby), wheels knocked off (Wheel snatcher), got rammed (Punching bag), cats hugged (Cat lover), crashes caused by cats (Cat's revenge).
 
@@ -169,8 +193,8 @@ Notes:
 - Only **local multiplayer** races (2+ players, not online) are recorded.
 - Only players **with a profile** get their times saved.
 - A time only counts if the player passed **every checkpoint** (shortcuts show as "missed checkpoint" and aren't saved).
-- Races are always recorded. F9 only shows the current map's top times.
-- When a race starts, the map's top 3 shows for a few seconds. When someone beats the map record, a "NEW MAP RECORD!" popup appears.
+- Races are always recorded.
+- When a race starts, the map's top 3 always shows for a few seconds. When someone beats the map record, a "NEW MAP RECORD!" popup appears.
 - While the mouse is over the Couch Party window (or you're typing in it), the game ignores clicks and key presses, for everyone, including controllers.
 - Remove a single time with the **x** next to it in the Leaderboard tab.
 - Outfits can only use cosmetics that the Steam account running the game has unlocked.
@@ -183,7 +207,7 @@ Send `BepInEx\LogOutput.log` afterwards. The mod writes `[debug]` lines into it.
 
 - [ ] The log says `Couch Party 1.0.6 loaded`.
 - [ ] The top-3 popup appears for a few seconds when a race starts, then fades. It doesn't appear on the player-select screen.
-- [ ] F9 during a race shows it again for a few seconds.
+- [ ] F8 > Stats: **Tonight** (or F9) shows only tonight's races; **All time** (or F9 again) goes back. After a race, both views went up by the same amount.
 - [ ] Beating the map record shows "NEW MAP RECORD!" right after crossing the finish (or at the latest on the results screen).
 - [ ] With the F8 window open, clicking inside it no longer clicks game buttons behind it.
 - [ ] The log has `Scene: '...'` lines. Send them if popups never appear.

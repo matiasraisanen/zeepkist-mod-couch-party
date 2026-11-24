@@ -69,7 +69,7 @@ should run the same version.
 | `src/Game.cs` | Reading the game: players, names, results, `RaceSummary`, time formatting |
 | `src/CouchUI.cs` | All IMGUI: F8 window tabs (Players, Profiles, Leaderboard, Stats, Hall of Fame, Tonight, Backups, Sync), pre-race popup, new record popup, results screen panels (layout "B") |
 | `src/LiveRecords.cs` | "NEW MAP RECORD!" the moment someone crosses the line |
-| `src/Session.cs` | Tonight: maps and runs this evening, "fastest on" counts; resets after 6 h without racing; this PC only |
+| `src/Session.cs` | Tonight: maps and runs this evening, "fastest on" counts, and every stat per player for the Stats tab's Tonight view (filled in `StatsTracker` next to the lifetime stats); resets after 6 h without racing; this PC only |
 | `src/Sync.cs` | Sync with the server: download, merge, upload with If-Match, version guard |
 | `src/Backups.cs` | Backups by count (30), never by age; a permanent one before each mod update |
 | `src/Outfits.cs` | Remembering and applying outfits per profile |

@@ -21,9 +21,8 @@ namespace CouchParty
         internal static ManualLogSource Log;
 
         internal static ConfigEntry<KeyCode> ToggleWindowKey;
-        internal static ConfigEntry<KeyCode> ShowRecordsKey;
+        internal static ConfigEntry<KeyCode> SwitchViewKey;
         internal static ConfigEntry<bool> ShowNamesOnPlayerSelect;
-        internal static ConfigEntry<bool> ShowPreRacePopup;
         internal static ConfigEntry<float> PreRacePopupSeconds;
         internal static ConfigEntry<int> PreRaceTopCount;
         internal static ConfigEntry<int> ResultsTopCount;
@@ -48,9 +47,8 @@ namespace CouchParty
             Log.LogInfo($"{Name} {Version} starting...");
 
             ToggleWindowKey = Config.Bind("Keys", "Toggle window", KeyCode.F8, "Opens the Couch Party window (profiles and leaderboard).");
-            ShowRecordsKey = Config.Bind("Keys", "Show map records", KeyCode.F9, "Shows the top times for the current map.");
+            SwitchViewKey = Config.Bind("Keys", "Switch view", KeyCode.F9, "Stats tab: all time / tonight. Results screen: best per player / all runs.");
             ShowNamesOnPlayerSelect = Config.Bind("General", "Names on player select", true, "Show profile names instead of 'Player N' on the player-select screen.");
-            ShowPreRacePopup = Config.Bind("Leaderboard", "Race start popup", true, "Show the map's top times for a few seconds when a local multiplayer race starts.");
             PreRacePopupSeconds = Config.Bind("Leaderboard", "Popup seconds", 5f, "How long the top-times and new-record popups stay on screen.");
             PreRaceTopCount = Config.Bind("Leaderboard", "Pre-race popup entries", 3,
                 new ConfigDescription("How many top times the pre-race popup shows.", new AcceptableValueRange<int>(1, 20)));
@@ -148,7 +146,7 @@ namespace CouchParty
             StatsTracker.OnRoundStarted();
             if (!Game.IsLocalMultiplayer()) return;
             LiveRecords.OnRoundStarted();
-            if (ShowPreRacePopup.Value) CouchUI.Instance?.ShowPreRace();
+            CouchUI.Instance?.ShowPreRace();
         }
 
         private void OnQuit()

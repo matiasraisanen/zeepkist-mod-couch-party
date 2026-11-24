@@ -194,28 +194,34 @@ namespace CouchParty
             {
                 var profile = Store.GetSlotProfile(line.Slot);
                 if (profile == null) continue;
-                var st = profile.MyStats; // this PC's entry; totals are summed over all PCs
-                st.Updated = DateTime.UtcNow;
-
-                st.Races++;
-                if (line.Finished)
+                profile.MyStats.Updated = DateTime.UtcNow;
+                // This PC's lifetime entry (totals are summed over all PCs) and tonight's stats get the same numbers.
+                foreach (var st in new[] { profile.MyStats, Session.StatsFor(profile) })
                 {
-                    st.Finishes++;
-                    st.FinishTimeSeconds += line.Time;
-                    if (line == winner && summary.Lines.Count >= 2) st.Wins++;
+                    st.Races++;
+                    if (line.Finished)
+                    {
+                        st.Finishes++;
+                        st.FinishTimeSeconds += line.Time;
+                        if (line == winner && summary.Lines.Count >= 2) st.Wins++;
+                    }
+                    else if (line.CrossedFinish) st.ShortcutFinishes++;
+                    else st.Dnfs++;
+                    if (line.Finished && Slots.TryGetValue(line.Slot, out var atFinish))
+                    {
+                        CountWheelFinish(st, atFinish);
+                        if (atFinish.DeadAtFinish) st.OnFootFinishes++;
+                        else if (atFinish.ReverseAtFinish) st.ReverseFinishes++;
+                    }
+                    if (line.NewPersonalBest) st.PersonalBests++;
+                    if (line.NewMapRecord) st.RecordsBroken++;
                 }
-                else if (line.CrossedFinish) st.ShortcutFinishes++;
-                else st.Dnfs++;
-                if (line.Finished && Slots.TryGetValue(line.Slot, out var atFinish))
+                if (Slots.TryGetValue(line.Slot, out var live))
                 {
-                    CountWheelFinish(st, atFinish);
-                    if (atFinish.DeadAtFinish) st.OnFootFinishes++;
-                    else if (atFinish.ReverseAtFinish) st.ReverseFinishes++;
+                    if (line.Finished && live.Wheels.Count >= 4 && live.WheelsAtFinish >= 0 && live.WheelsAtFinish < 4)
+                        Plugin.Debug($"Player {live.Slot + 1} finished on {live.WheelsAtFinish} wheel(s)!");
+                    AddLive(live, profile.MyStats, Session.StatsFor(profile));
                 }
-                if (line.NewPersonalBest) st.PersonalBests++;
-                if (line.NewMapRecord) st.RecordsBroken++;
-
-                if (Slots.TryGetValue(line.Slot, out var live)) AddLive(st, live);
                 changed = true;
             }
             Slots.Clear();
@@ -224,6 +230,7 @@ namespace CouchParty
             {
                 Store.StatsChanged();
                 Store.SaveProfiles();
+                Session.StatsChanged();
             }
         }
 
@@ -299,9 +306,8 @@ namespace CouchParty
             {
                 var profile = Store.GetSlotProfile(kv.Key);
                 if (profile == null) continue;
-                var st = profile.MyStats;
-                st.Updated = DateTime.UtcNow;
-                AddLive(st, kv.Value);
+                profile.MyStats.Updated = DateTime.UtcNow;
+                AddLive(kv.Value, profile.MyStats, Session.StatsFor(profile));
                 changed = true;
             }
             Slots.Clear();
@@ -309,6 +315,7 @@ namespace CouchParty
             {
                 Store.StatsChanged();
                 Store.SaveProfiles();
+                Session.StatsChanged();
             }
         }
 
@@ -323,10 +330,23 @@ namespace CouchParty
                 case 1: st.OneWheelFinishes++; break;
                 case 0: st.ZeroWheelFinishes++; break;
             }
-            if (live.WheelsAtFinish < 4) Plugin.Debug($"Player {live.Slot + 1} finished on {live.WheelsAtFinish} wheel(s)!");
         }
 
-        private static void AddLive(PlayerStats st, Live live)
+        /// <summary>Adds the live counters to every target (lifetime and tonight), then clears them so they are counted once.</summary>
+        private static void AddLive(Live live, params PlayerStats[] targets)
+        {
+            foreach (var st in targets) AddLiveTo(st, live);
+            live.CatsHugged = live.CatCrashes = 0;
+            live.Air = 0;
+            live.BigJumps = 0;
+            live.FrontFlips = live.Backflips = live.BarrelRolls = live.BiggestSpin = 0;
+            live.Spins180 = live.Spins360 = live.Spins720 = live.Spins1080 = 0;
+            live.Crashes = live.Ejects = live.Timeouts = live.WheelsLost = 0;
+            live.CarToCarHits = live.RammedOthers = live.GotRammed = live.Knockouts = live.WheelsKnockedOff = 0;
+            live.Distance = 0;
+        }
+
+        private static void AddLiveTo(PlayerStats st, Live live)
         {
             st.Crashes += live.Crashes;
             st.Ejects += live.Ejects;
@@ -341,22 +361,14 @@ namespace CouchParty
             st.WheelsKnockedOff += live.WheelsKnockedOff;
             st.CatsHugged += live.CatsHugged;
             st.CatCrashes += live.CatCrashes;
-            live.CatsHugged = live.CatCrashes = 0;
             st.AirSeconds += live.Air;
             st.LongestJumpSeconds = Mathf.Max(st.LongestJumpSeconds, live.LongestJump);
             st.BigJumps += live.BigJumps;
-            live.Air = 0;
-            live.BigJumps = 0;
             st.FrontFlips += live.FrontFlips;
             st.Backflips += live.Backflips;
             st.BarrelRolls += live.BarrelRolls;
             st.Spins180 += live.Spins180; st.Spins360 += live.Spins360; st.Spins720 += live.Spins720; st.Spins1080 += live.Spins1080;
             st.BiggestSpin = Math.Max(st.BiggestSpin, live.BiggestSpin);
-            live.FrontFlips = live.Backflips = live.BarrelRolls = live.BiggestSpin = 0;
-            live.Spins180 = live.Spins360 = live.Spins720 = live.Spins1080 = 0;
-            live.Crashes = live.Ejects = live.Timeouts = live.WheelsLost = 0;
-            live.CarToCarHits = live.RammedOthers = live.GotRammed = live.Knockouts = live.WheelsKnockedOff = 0;
-            live.Distance = 0;
         }
 
         // ---------------- Per-frame tracking ----------------

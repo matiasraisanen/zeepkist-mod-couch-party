@@ -50,6 +50,8 @@ namespace CouchParty
             public DateTime LastRace { get; set; } = DateTime.Now;
             public Dictionary<string, MapTonight> Maps { get; set; } = new Dictionary<string, MapTonight>();
             public Dictionary<string, PlayerTonight> Players { get; set; } = new Dictionary<string, PlayerTonight>();
+            /// <summary>Every stat for tonight, per profile (the Stats tab's "Tonight" view). Filled with the lifetime stats.</summary>
+            public Dictionary<string, PlayerStats> Stats { get; set; } = new Dictionary<string, PlayerStats>();
         }
 
         public class Standing
@@ -84,6 +86,29 @@ namespace CouchParty
             if (_data == null) _data = new Data();
             if (_data.Maps == null) _data.Maps = new Dictionary<string, MapTonight>();
             if (_data.Players == null) _data.Players = new Dictionary<string, PlayerTonight>();
+            if (_data.Stats == null) _data.Stats = new Dictionary<string, PlayerStats>();
+        }
+
+        /// <summary>Tonight's stats for a profile, created when they first get something to count.</summary>
+        public static PlayerStats StatsFor(Profile profile)
+        {
+            var data = Current;
+            if (!data.Stats.TryGetValue(profile.Id, out var st)) data.Stats[profile.Id] = st = new PlayerStats();
+            return st;
+        }
+
+        /// <summary>Tonight's stats for a profile, or null if they haven't raced tonight.</summary>
+        public static PlayerStats StatsOrNull(string profileId) => Current.Stats.GetOrNull(profileId);
+
+        /// <summary>On how many of tonight's maps this profile has the fastest time of the evening.</summary>
+        public static int FastestOn(string profileId) =>
+            Current.Maps.Values.Count(m => m.Best.Count > 0 && m.Best.OrderBy(kv => kv.Value).First().Key == profileId);
+
+        /// <summary>Saves tonight's stats after they changed (a race or round was counted).</summary>
+        public static void StatsChanged()
+        {
+            Current.LastRace = DateTime.Now;
+            Save();
         }
 
         private static void Save()
