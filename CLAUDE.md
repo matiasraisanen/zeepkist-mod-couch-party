@@ -12,7 +12,8 @@ backups, and optional sync between PCs through your own small server (`server/`)
   timing changes, update the README in the same change.
 - **Nothing personal in the repo:** no sync server addresses, keys, hostnames or anything that
   identifies someone's machine. The server address and key are set in the game (F8 > Sync) and live
-  only in each PC's BepInEx config.
+  only in each PC's BepInEx config. The repo is public. In examples, comments and tests, use
+  made-up player names (Alice, Bob, Carol), never real players' names or gamer tags.
 - **Names:** "car-to-car hits" (not bumps or collisions); a hit has a **rammer**. An empty value is an
   en dash (`\u2013`, `NoValue` in `CouchUI`), except on the Tonight tab, where zeros stay.
 - **UI:** IMGUI scaled to a 1080p reference (`Screen.height / 1080`). It must work at 16:9 and on
@@ -78,6 +79,7 @@ should run the same version.
 | `server/server.py` | Sync server, Python standard library only, meant to run in Docker behind a reverse proxy with HTTPS. Stores one JSON document, checks per-PC keys, optimistic locking with a revision number (ETag / If-Match), keeps 100 old versions. Knows nothing about the stat fields |
 | `tests/CouchParty.Tests` | Test program for merging and save files |
 | `tools/memberrefs.py` | The member scan above |
+| `tools/deploy.sh` | Build on Linux, copy the DLL to the game PC over SSH, fetch `LogOutput.log`. Host and paths come from environment variables, never the repo |
 
 Saved data: `%AppData%\Zeepkist\Mods\com.skofdo.couchparty\`. Config:
 `BepInEx\config\com.skofdo.couchparty.cfg`. Log: `BepInEx\LogOutput.log` (debug lines carry a

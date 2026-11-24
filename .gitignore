@@ -3,3 +3,9 @@ obj/
 dist/
 server/data/
 __pycache__/
+lib/
+logs/
+.venv/
+
+# Personal notes (machines, workflow); never commit
+CLAUDE.local.md
