@@ -747,6 +747,9 @@ namespace CouchParty
         private static int RecordsHeld(Profile p) =>
             Store.Leaderboard.Levels.Values.Count(l => l.Ranked().FirstOrDefault()?.ProfileId == p.Id);
 
+        /// <summary>"1 flip", "3 flips".</summary>
+        private static string Count(double v, string thing) => $"{v:0} {thing}{(Math.Round(v) == 1 ? "" : "s")}";
+
         private static string Km(double meters) => meters >= 1000 ? $"{meters / 1000:0.0} km" : $"{meters:0} m";
 
         private static string AirTime(double seconds) =>
@@ -816,10 +819,10 @@ namespace CouchParty
             var finishes = new (string, object)[] { ("Finishes", st.Finishes), ("   3-wheel", st.ThreeWheelFinishes), ("   2-wheel", st.TwoWheelFinishes), ("   1-wheel", st.OneWheelFinishes), ("   no-wheel", st.ZeroWheelFinishes), ("   on foot", st.OnFootFinishes), ("   reverse", st.ReverseFinishes), ("Shortcut finishes", st.ShortcutFinishes) };
             var records = new (string, object)[] { (tonight ? "Fastest on (maps)" : "Map records held", held), ("Records broken", st.RecordsBroken), ("Personal bests", st.PersonalBests), ("Time on the clock", Game.FormatDuration(st.FinishTimeSeconds)) };
             var carnage = new (string, object)[] { ("Crashes", st.Crashes), ("   hard crashes", st.HardCrashes), ("   ejects", st.Ejects), ("   timeouts", st.Timeouts), ("Wheels lost", st.WheelsLost) };
-            var driving = new (string, object)[] { ("Distance driven", Km(st.DistanceMeters)), ("Distance per race", Km(st.Races > 0 ? st.DistanceMeters / st.Races : 0)), ("Top speed", $"{st.TopSpeedKmh:0} km/h"), ("Air time", AirTime(st.AirSeconds)), ("Longest jump", $"{st.LongestJumpSeconds:0.0} s"), ("Big jumps (1 s+)", st.BigJumps) };
+            var driving = new (string, object)[] { ("Distance driven", Km(st.DistanceMeters)), ("Distance per race", Km(st.Races > 0 ? st.DistanceMeters / st.Races : 0)), ("Top speed", $"{st.TopSpeedKmh:0} km/h"), ("Air time", AirTime(st.AirSeconds)), ("Longest jump", $"{st.LongestJumpSeconds:0.0} s") };
             var bumper = new (string, object)[] { ("Car-to-car hits", st.CarToCarHits), ("Rammed others", st.RammedOthers), ("Got rammed", st.GotRammed), ("Knockouts", st.Knockouts), ("Wheels knocked off", st.WheelsKnockedOff) };
-            var cats = new (string, object)[] { ("Cats hugged", st.CatsHugged), ("Crashes caused by cats", st.CatCrashes) };
-            var stunts = new (string, object)[] { ("Front flips", st.FrontFlips), ("Backflips", st.Backflips), ("Barrel rolls", st.BarrelRolls), ("180s", st.Spins180), ("360s", st.Spins360), ("720s", st.Spins720), ("1080s", st.Spins1080), ("Biggest spin", st.BiggestSpin > 0 ? $"{st.BiggestSpin}°" : NoValue) };
+            var cats = new (string, object)[] { ("Cats petted", st.CatsPetted), ("Crashes caused by cats", st.CatCrashes) };
+            var stunts = new (string, object)[] { ("Big jumps (1 s+)", st.BigJumps), ("Front flips", st.FrontFlips), ("Backflips", st.Backflips), ("Most flips in one jump", st.MostFlipsInJump > 0 ? (object)st.MostFlipsInJump : NoValue), ("Barrel rolls", st.BarrelRolls), ("Most rolls in one jump", st.MostRollsInJump > 0 ? (object)st.MostRollsInJump : NoValue), ("180s", st.Spins180), ("360s", st.Spins360), ("720s", st.Spins720), ("1080s", st.Spins1080), ("Biggest spin", st.BiggestSpin > 0 ? $"{st.BiggestSpin}°" : NoValue) };
 
             var columns = Wide
                 ? new[]
@@ -913,9 +916,11 @@ namespace CouchParty
                 ("Speed demon", "Highest top speed ever", p => p.Stats.TopSpeedKmh, v => $"{v:0} km/h"),
                 ("Road tripper", "Longest total distance driven", p => p.Stats.DistanceMeters, v => Km(v)),
                 ("Frequent flyer", "Most total time in the air", p => p.Stats.AirSeconds, v => AirTime(v)),
-                ("Moon landing", "Longest single jump", p => p.Stats.LongestJumpSeconds, v => $"{v:0.0} s"),
-                ("Acrobat", "Most flips landed (front flips and backflips, without crashing)", p => p.Stats.FrontFlips + p.Stats.Backflips, v => $"{v:0} flips"),
-                ("Corkscrew", "Most barrel rolls landed (without crashing)", p => p.Stats.BarrelRolls, v => $"{v:0} rolls"),
+                ("Moon landing", "Longest single jump (landed)", p => p.Stats.LongestJumpSeconds, v => $"{v:0.0} s"),
+                ("Acrobat", "Most flips landed (front flips and backflips, without crashing)", p => p.Stats.FrontFlips + p.Stats.Backflips, v => Count(v, "flip")),
+                ("Tumble dryer", "Most flips in one jump (landed)", p => p.Stats.MostFlipsInJump, v => Count(v, "flip")),
+                ("Corkscrew", "Most barrel rolls landed (without crashing)", p => p.Stats.BarrelRolls, v => Count(v, "roll")),
+                ("Rotisserie", "Most barrel rolls in one jump (landed)", p => p.Stats.MostRollsInJump, v => Count(v, "roll")),
                 ("Spin doctor", "Biggest flat spin landed, in exact degrees", p => p.Stats.BiggestSpin, v => $"{v:0}°"),
                 ("Moonwalker", "Most finishes crossing the line backwards", p => p.Stats.ReverseFinishes, v => $"{v:0} reverse finishes"),
                 ("Crash king", "Most hard crashes (actually hit something)", p => p.Stats.HardCrashes, v => $"{v:0} crashes"),
@@ -930,7 +935,7 @@ namespace CouchParty
                 ("Demolition derby", "Most knockouts: rammed another racer who then crashed soon after", p => p.Stats.Knockouts, v => $"{v:0} knockouts"),
                 ("Wheel snatcher", "Knocked the most wheels off other racers", p => p.Stats.WheelsKnockedOff, v => $"{v:0} wheels"),
                 ("Punching bag", "Got rammed by other racers the most", p => p.Stats.GotRammed, v => $"{v:0} times"),
-                ("Cat lover", "Hugged the most walking cats (with their car)", p => p.Stats.CatsHugged, v => $"{v:0} cats"),
+                ("Cat lover", "Petted the most walking cats (with their car)", p => p.Stats.CatsPetted, v => $"{v:0} cats"),
                 ("Cat's revenge", "Crashed the most after hitting a cat", p => p.Stats.CatCrashes, v => $"{v:0} crashes"),
             };
 

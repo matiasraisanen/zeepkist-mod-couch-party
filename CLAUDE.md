@@ -98,12 +98,14 @@ timestamp and the race time).
     down is a crash.
   - **Eject:** the player presses **Y** and jumps out of the car.
   - **Timeout:** the game auto-ejects a player who stays below a certain speed for about 10 seconds.
-- **On foot finish:** after ejecting, the character can still cross the finish line, and that's a
-  legit, valid run.
+- **On foot finish:** ejecting throws the driver through the air as a rag doll that nobody can steer.
+  If it happens to tumble over the finish line, that's a legit, valid run.
 - **Checkpoints:** a time only counts if every checkpoint was passed; otherwise it's a shortcut finish.
 - **Every map has a flat "ground" object** below the track (`GameMaster.groundFloor`). Falling onto it
-  means you're out of the race in practice (you have to eject). Falls can be long, up to about 15 s,
-  and can land cleanly. Speed, stunts and "back on track" must ignore the ground floor.
+  usually means you're out of the race in practice (you have to eject), but not always: on some maps
+  you can drive back to the track, or eject and tumble over the finish line. So the ground floor never ends a
+  race or decides a DNF by itself. Falls can be long, up to about 15 s, and can land cleanly. Speed,
+  stunts and "back on track" must ignore the ground floor.
 - **Maps are mostly 30 to 60 seconds long.**
 - **The physics feel "airy":** jumps last long, so time-based thresholds (big jumps) may need to be
   generous.
@@ -147,12 +149,13 @@ timestamp and the race time).
 - **Knockout:** only the rammed player is marked, with the rammer as the culprit.
   - **How long the mark lasts:** 3 s if they stay on their wheels; in the air, until they've been back on the
     real track for 1 s; at most 15 s.
-  - **What counts:** a crash, eject or timeout while marked is the rammer's knockout. Not finishing
-    is never a knockout. Crashing after ramming someone is just your own crash.
+  - **What counts:** a crash, eject or timeout while marked is the rammer's knockout, unless they
+    still cross the finish on foot (held until the race ends). Not finishing is never a knockout. Crashing after ramming someone is just your own crash.
 - **Wheels knocked off:** any wheel the rammed player loses while still marked.
 - **Crash caused by a cat:** same timing as knockouts.
 - **Top speed:** only on the real track, not in the first second after landing.
-- **Air time:** no wheel and no car-body contact; hops under 0.3 s don't count. Big jump: 1 s or more.
+- **Air time:** no wheel and no car-body contact; hops under 0.3 s don't count. Big jump: 1 s or more, counted like a stunt (landed on the
+  real track, no crash within 3 s). Longest jump too. Air time counts every jump.
 - **Stunts:** rotation around the car's own axes during a jump.
   - **Sizes:** flips and rolls count from 300°; spins count in half turns with 45° slack.
   - **Counters:** 180s / 360s / 720s / 1080s; 540 goes with 360, 900 with 720.
@@ -180,5 +183,5 @@ timestamp and the race time).
 With **Advanced > Debug logging** on, `LogOutput.log` gets `[debug]` lines with a timestamp and the
 race time: car-to-car hits (speeds, rammer), crashes and lost wheels (with how long after the last
 ram), knockouts, mark cleared, every jump (time, distance, height, drop), rotation per jump, stunts
-landed, car axes found, and the angle at the finish. The timing constants at the top of
+landed (air time, degrees per axis, best single jump of the race), car axes found, and the angle at the finish. The timing constants at the top of
 `src/Stats.cs` were tuned from these lines; check them against real play before changing a rule.

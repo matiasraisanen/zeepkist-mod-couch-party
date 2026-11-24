@@ -38,7 +38,7 @@ namespace CouchParty
             public int LastHitBy = -1;
             public float LastHitTime;
             public int WheelsKnockedOff;
-            public int CatsHugged;
+            public int CatsPetted;
             // When things happened (unscaled time), so the race's moments can be listed in order.
             public float JumpAt, CatAt, WheelAt, RamAt, TopSpeedAt, FinishAt;
             public int CatCrashes;
@@ -51,6 +51,10 @@ namespace CouchParty
 
             // Knockout tracking: armed by a bump, cleared once they're safely back on the ground.
             public bool KoArmed;
+            // Crashed (or ejected) while marked: the rammer's knockout, unless they still cross the finish on foot.
+            // Decided when the race ends.
+            public int KoPendingBy = -1;
+            public float KoPendingAt;
             public List<object> CustomWheels = new List<object>(); // New_CustomWheel (has isGrounded)
             public float LastBodyContact = -10f;  // car body touching something that isn't another racer
             public float GroundedSince = -1f;      // -1 while airborne
@@ -77,6 +81,7 @@ namespace CouchParty
             public List<Stunt> Pending = new List<Stunt>(); // landed, waiting to see if they crash right after
             public int FrontFlips, Backflips, BarrelRolls, Spins180, Spins360, Spins720, Spins1080;
             public int BiggestSpin;                 // exact degrees of the biggest spin landed
+            public int MostFlips, MostRolls;        // most flips / rolls landed in one jump
             public float StuntAt;
             public bool ReverseAtFinish;            // crossed the finish rear wheels first
         }
@@ -87,6 +92,10 @@ namespace CouchParty
             public int Front, Back, Rolls;
             public int Spin;        // the trick: 180, 360... up to 1080 (0 = no spin)
             public int SpinDegrees; // how far it actually turned
+            public string Detail;   // for the debug log: air time and degrees around each axis
+            public float Seconds;   // time in the air (for the longest jump)
+            public bool BigJump;    // 1 s or more in the air
+            public bool HasTricks => Front + Back + Rolls + Spin > 0;
             public float LandedAt;
             public string Name;
         }
@@ -96,7 +105,7 @@ namespace CouchParty
 
         /// <summary>Shorter hops than this aren't counted as air time.</summary>
         private const float MinJumpSeconds = 0.3f;
-        /// <summary>Jumps at least this long count as big jumps.</summary>
+        /// <summary>Jumps at least this long count as big jumps (landed like a stunt).</summary>
         private const float BigJumpSeconds = 1f;
 
         /// <summary>Gentler touches than this (relative speed, m/s) don't count as a bump.</summary>
@@ -186,6 +195,7 @@ namespace CouchParty
         {
             if (summary == null) { Slots.Clear(); _tracking = false; return; }
 
+            SettleKnockouts(summary);
             FillHighlights(summary);
 
             var winner = summary.Lines.FirstOrDefault(l => l.Finished);
@@ -218,7 +228,7 @@ namespace CouchParty
                 }
                 if (Slots.TryGetValue(line.Slot, out var live))
                 {
-                    if (line.Finished && live.Wheels.Count >= 4 && live.WheelsAtFinish >= 0 && live.WheelsAtFinish < 4)
+                    if (line.Finished && !live.DeadAtFinish && live.Wheels.Count >= 4 && live.WheelsAtFinish >= 0 && live.WheelsAtFinish < 4)
                         Plugin.Debug($"Player {live.Slot + 1} finished on {live.WheelsAtFinish} wheel(s)!");
                     AddLive(live, profile.MyStats, Session.StatsFor(profile));
                 }
@@ -249,7 +259,7 @@ namespace CouchParty
                     LongestJump = live?.LongestJump ?? 0,
                     Hits = live?.CarToCarHits ?? 0,
                     Knockouts = live?.Knockouts ?? 0,
-                    Cats = live?.CatsHugged ?? 0,
+                    Cats = live?.CatsPetted ?? 0,
                     Crashes = live?.Crashes ?? 0,
                     WheelsLost = live?.WheelsLost ?? 0,
                     Rams = live?.RammedOthers ?? 0,
@@ -278,8 +288,8 @@ namespace CouchParty
             var jump = summary.Highlights.OrderByDescending(h => h.LongestJump).FirstOrDefault();
             if (jump != null && jump.LongestJump >= 1f) AddMoment(3, $"{jump.Name} flew {jump.LongestJump:0.0} s", At(jump.Slot, l => l.JumpAt));
             var cats = summary.Highlights.OrderByDescending(h => h.Cats).FirstOrDefault();
-            if (cats != null && cats.Cats >= 2) AddMoment(3, $"{cats.Name} hugged {cats.Cats} cats", At(cats.Slot, l => l.CatAt));
-            else if (cats != null && cats.Cats == 1) AddMoment(4, $"{cats.Name} hugged a cat", At(cats.Slot, l => l.CatAt));
+            if (cats != null && cats.Cats >= 2) AddMoment(3, $"{cats.Name} petted {cats.Cats} cats", At(cats.Slot, l => l.CatAt));
+            else if (cats != null && cats.Cats == 1) AddMoment(4, $"{cats.Name} petted a cat", At(cats.Slot, l => l.CatAt));
 
             var fastest = summary.Highlights.OrderByDescending(h => h.TopSpeed).FirstOrDefault();
             if (fastest != null && fastest.TopSpeed > 0) AddMoment(5, $"Fastest: {fastest.Name} {fastest.TopSpeed:0} km/h", At(fastest.Slot, l => l.TopSpeedAt));
@@ -301,6 +311,7 @@ namespace CouchParty
 
         private static void CommitLiveOnly()
         {
+            SettleKnockouts(null);
             bool changed = false;
             foreach (var kv in Slots)
             {
@@ -319,9 +330,10 @@ namespace CouchParty
             }
         }
 
-        /// <summary>Valid finish with wheels missing: bump the 3/2/1/0-wheel counter.</summary>
+        /// <summary>Valid finish with wheels missing: bump the 3/2/1/0-wheel counter. Only when they drove over the line.</summary>
         private static void CountWheelFinish(PlayerStats st, Live live)
         {
+            if (live.DeadAtFinish) return; // on foot: the car's wheels don't matter any more
             if (live.Wheels.Count < 4 || live.WheelsAtFinish < 0) return; // couldn't see the wheels
             switch (live.WheelsAtFinish)
             {
@@ -336,10 +348,10 @@ namespace CouchParty
         private static void AddLive(Live live, params PlayerStats[] targets)
         {
             foreach (var st in targets) AddLiveTo(st, live);
-            live.CatsHugged = live.CatCrashes = 0;
+            live.CatsPetted = live.CatCrashes = 0;
             live.Air = 0;
             live.BigJumps = 0;
-            live.FrontFlips = live.Backflips = live.BarrelRolls = live.BiggestSpin = 0;
+            live.FrontFlips = live.Backflips = live.BarrelRolls = live.BiggestSpin = live.MostFlips = live.MostRolls = 0;
             live.Spins180 = live.Spins360 = live.Spins720 = live.Spins1080 = 0;
             live.Crashes = live.Ejects = live.Timeouts = live.WheelsLost = 0;
             live.CarToCarHits = live.RammedOthers = live.GotRammed = live.Knockouts = live.WheelsKnockedOff = 0;
@@ -359,7 +371,7 @@ namespace CouchParty
             st.GotRammed += live.GotRammed;
             st.Knockouts += live.Knockouts;
             st.WheelsKnockedOff += live.WheelsKnockedOff;
-            st.CatsHugged += live.CatsHugged;
+            st.CatsPetted += live.CatsPetted;
             st.CatCrashes += live.CatCrashes;
             st.AirSeconds += live.Air;
             st.LongestJumpSeconds = Mathf.Max(st.LongestJumpSeconds, live.LongestJump);
@@ -367,6 +379,8 @@ namespace CouchParty
             st.FrontFlips += live.FrontFlips;
             st.Backflips += live.Backflips;
             st.BarrelRolls += live.BarrelRolls;
+            st.MostFlipsInJump = Math.Max(st.MostFlipsInJump, live.MostFlips);
+            st.MostRollsInJump = Math.Max(st.MostRollsInJump, live.MostRolls);
             st.Spins180 += live.Spins180; st.Spins360 += live.Spins360; st.Spins720 += live.Spins720; st.Spins1080 += live.Spins1080;
             st.BiggestSpin = Math.Max(st.BiggestSpin, live.BiggestSpin);
         }
@@ -528,11 +542,11 @@ namespace CouchParty
             if (CatLastHit.TryGetValue(key, out float last) && now - last < CatHitCooldown) return;
             CatLastHit[key] = now;
 
-            live.CatsHugged++;
+            live.CatsPetted++;
             live.CatAt = now;
             live.CatArmed = true;
             live.CatHitTime = now;
-            Plugin.Debug($"Cat #{cat.GetInstanceID()} hugged by Player {slot + 1} at {collision.relativeVelocity.magnitude * 3.6f:0} km/h!");
+            Plugin.Debug($"Cat #{cat.GetInstanceID()} petted by Player {slot + 1} at {collision.relativeVelocity.magnitude * 3.6f:0} km/h!");
         }
 
         /// <summary>Car body is touching something (OnCollisionStay). Only the track/scenery counts as ground.</summary>
@@ -689,26 +703,37 @@ namespace CouchParty
             live.Yaw += Vector3.Dot(turn, live.Up);
         }
 
-        /// <summary>A jump ended: turn the rotation into flips, rolls and a spin, and hold them until we know they didn't crash.</summary>
+        /// <summary>
+        /// A jump ended: turn the rotation into flips, rolls and a spin (and note a big jump), and hold them until
+        /// we know they didn't crash.
+        /// </summary>
         private static void EndJump(Live live, float seconds, float now, bool dead, bool finished, bool onTrack)
         {
-            if (!live.AxesKnown) return;
             float pitch = live.Pitch, roll = live.Roll, yaw = live.Yaw;
             live.Pitch = live.Roll = live.Yaw = 0f;
-            int flips = (int)((Mathf.Abs(pitch) + FlipSlack) / 360f);
-            int rolls = (int)((Mathf.Abs(roll) + FlipSlack) / 360f);
-            int spin = (int)((Mathf.Abs(yaw) + SpinSlack) / 180f) * 180;
-            if (Mathf.Abs(pitch) >= 90f || Mathf.Abs(roll) >= 90f || Mathf.Abs(yaw) >= 90f)
+            bool big = seconds >= BigJumpSeconds;
+            int flips = 0, rolls = 0, spin = 0;
+            if (live.AxesKnown) // rotation only means something once we know which way the car faces
+            {
+                flips = (int)((Mathf.Abs(pitch) + FlipSlack) / 360f);
+                rolls = (int)((Mathf.Abs(roll) + FlipSlack) / 360f);
+                spin = (int)((Mathf.Abs(yaw) + SpinSlack) / 180f) * 180;
+            }
+            if (live.AxesKnown && (Mathf.Abs(pitch) >= 90f || Mathf.Abs(roll) >= 90f || Mathf.Abs(yaw) >= 90f))
                 Plugin.Debug($"Player {live.Slot + 1} rotated in the air ({seconds:0.0} s): flip {pitch:+0;-0;0}° (+ = forwards), roll {roll:+0;-0;0}°, spin {yaw:+0;-0;0}°" +
                              $" -> {flips} flip(s), {rolls} roll(s), {spin} spin" +
                              $"{(dead ? ", but crashed" : finished ? ", crossing the finish" : !onTrack ? ", but landed off the track (doesn't count)" : "")}.");
-            if (flips == 0 && rolls == 0 && spin == 0) return;
+            // Every real jump goes through the landing check too: the longest jump has to be landed.
+            if (flips == 0 && rolls == 0 && spin == 0 && seconds < MinJumpSeconds) return;
             if (dead) return;
             // Only a landing on the real track counts, not the map's flat ground: falling off the map
             // and tumbling onto it can produce silly 10x spins.
             if (!onTrack && !finished) return;
             var stunt = new Stunt { Front = pitch > 0 ? flips : 0, Back = pitch < 0 ? flips : 0, Rolls = rolls, Spin = Mathf.Min(spin, MaxSpinTrick), SpinDegrees = spin > 0 ? Mathf.RoundToInt(Mathf.Abs(yaw)) : 0, LandedAt = now };
-            stunt.Name = StuntName(stunt.Front, stunt.Back, rolls, spin);
+            stunt.Seconds = seconds;
+            stunt.BigJump = big;
+            stunt.Name = stunt.HasTricks ? StuntName(stunt.Front, stunt.Back, rolls, spin) : big ? "big jump" : $"{seconds:0.0} s jump";
+            stunt.Detail = $"{seconds:0.0} s in the air; flip {pitch:+0;-0;0}°, roll {roll:+0;-0;0}°, spin {yaw:+0;-0;0}°";
             live.Pending.Add(stunt); // each landing gets its own timer; a crash cancels all of them
         }
 
@@ -730,6 +755,12 @@ namespace CouchParty
             live.FrontFlips += s.Front;
             live.Backflips += s.Back;
             live.BarrelRolls += s.Rolls;
+            if (s.BigJump) live.BigJumps++;
+            if (s.Seconds > live.LongestJump) { live.LongestJump = s.Seconds; live.JumpAt = s.LandedAt; }
+            // Best single jump this race (kept as "most in one jump"). Logged so odd ones can be checked afterwards.
+            string best = "";
+            if (s.Front + s.Back > live.MostFlips) { live.MostFlips = s.Front + s.Back; best += $" Most flips in one jump this race: {live.MostFlips}."; } // one of them is always 0
+            if (s.Rolls > live.MostRolls) { live.MostRolls = s.Rolls; best += $" Most rolls in one jump this race: {live.MostRolls}."; }
             if (s.Spin > 0)
             {
                 // Four counters: 540s go with the 360s, 900s with the 720s.
@@ -739,9 +770,12 @@ namespace CouchParty
                 else live.Spins180++;
                 live.BiggestSpin = Mathf.Max(live.BiggestSpin, s.SpinDegrees);
             }
-            live.StuntAt = s.LandedAt;
-            AddMoment(2, $"{Game.SlotName(live.Slot)} landed a {s.Name}", s.LandedAt);
-            Plugin.Debug($"Stunt landed! Player {live.Slot + 1}: {s.Name}{(s.Spin > 0 ? $" (spun {s.SpinDegrees}°)" : "")}.");
+            if (s.HasTricks)
+            {
+                live.StuntAt = s.LandedAt;
+                AddMoment(2, $"{Game.SlotName(live.Slot)} landed a {s.Name}", s.LandedAt); // a plain big jump has its own "flew X s" moment
+            }
+            if (s.HasTricks || s.BigJump) Plugin.Debug($"Stunt landed! Player {live.Slot + 1}: {s.Name} ({s.Detail}).{best}");
         }
 
         /// <summary>For the debug log: how long ago this player was last rammed, and whether that still counts.</summary>
@@ -752,13 +786,38 @@ namespace CouchParty
             return $" Last rammed by Player {live.LastHitBy + 1} {ago:0.0} s ago ({(live.KoArmed ? "still marked: counts for them" : "mark cleared: doesn't count")}).";
         }
 
-        private static void CreditKnockout(Live victim, string how)
+        /// <summary>
+        /// A marked player crashed: hold the knockout until the race ends. If they eject and still reach the
+        /// finish on foot, the ram didn't knock them out after all.
+        /// </summary>
+        private static void HoldKnockout(Live victim, float now)
         {
             victim.KoArmed = false;
-            if (victim.LastHitBy < 0 || !Slots.TryGetValue(victim.LastHitBy, out var attacker)) return;
-            attacker.Knockouts++;
-            AddMoment(1, $"{Game.SlotName(victim.LastHitBy)} knocked out {Game.SlotName(victim.Slot)}");
-            Plugin.Debug($"Knockout! Player {victim.LastHitBy + 1} took out Player {victim.Slot + 1} ({how}).");
+            if (victim.LastHitBy < 0) return;
+            victim.KoPendingBy = victim.LastHitBy;
+            victim.KoPendingAt = now;
+            Plugin.Debug($"Player {victim.Slot + 1} crashed while marked: a knockout for Player {victim.LastHitBy + 1}, unless they still reach the finish.");
+        }
+
+        /// <summary>The race is over: held knockouts count, except for players who crossed the finish after all.</summary>
+        private static void SettleKnockouts(RaceSummary summary)
+        {
+            foreach (var victim in Slots.Values)
+            {
+                if (victim.KoPendingBy < 0) continue;
+                int by = victim.KoPendingBy;
+                victim.KoPendingBy = -1;
+                bool finished = victim.WasFinished || (summary?.Lines.Any(l => l.Slot == victim.Slot && l.CrossedFinish) ?? false);
+                if (finished)
+                {
+                    Plugin.Debug($"Player {victim.Slot + 1} reached the finish after all: no knockout for Player {by + 1}.");
+                    continue;
+                }
+                if (!Slots.TryGetValue(by, out var attacker)) continue;
+                attacker.Knockouts++;
+                AddMoment(1, $"{Game.SlotName(by)} knocked out {Game.SlotName(victim.Slot)}", victim.KoPendingAt);
+                Plugin.Debug($"Knockout! Player {by + 1} took out Player {victim.Slot + 1}.");
+            }
         }
 
         private static void Sample(Live live)
@@ -780,7 +839,7 @@ namespace CouchParty
                 else if (IsEject(live)) { live.Ejects++; kind = "eject"; }
                 else kind = "hard crash";
                 Plugin.Debug($"Player {live.Slot + 1} crashed: {kind} (reason: {PrettyReason(live.DeathReason)}, caller: '{live.KillCaller}', forced: {live.KillForced}).{SinceRammed(live)}");
-                if (live.KoArmed) CreditKnockout(live, "crashed");
+                if (live.KoArmed) HoldKnockout(live, now);
                 foreach (var s in live.Pending)
                     Plugin.Debug($"Player {live.Slot + 1} crashed {now - s.LandedAt:0.0} s after landing a {s.Name}: doesn't count.");
                 live.Pending.Clear();
@@ -834,12 +893,7 @@ namespace CouchParty
                 if (jump >= MinJumpSeconds)
                 {
                     live.Air += jump;
-                    if (jump > live.LongestJump) { live.LongestJump = jump; live.JumpAt = now; }
-                    if (jump >= BigJumpSeconds)
-                    {
-                        live.BigJumps++;
-                        Plugin.Debug($"Player {live.Slot + 1}: {jump:0.0} s of air time!");
-                    }
+                    // Big jumps and the longest jump are counted like stunts: landed on the track, no crash right after (CreditStunt).
                 }
             }
 

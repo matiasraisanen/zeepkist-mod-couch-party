@@ -27,7 +27,7 @@ DateTime t0 = new DateTime(2026, 11, 1, 12, 0, 0, DateTimeKind.Utc);
 // ---- PC A: Alice with stats from machine A, two runs on map M
 var a = new SyncDoc();
 var sA = new Profile { Id = "p1", Name = "Alice", Modified = t0 };
-sA.StatsByMachine["A"] = new PlayerStats { Races = 10, Wins = 4, Crashes = 7, TopSpeedKmh = 150, CatsHugged = 2, Updated = t0.AddHours(1) };
+sA.StatsByMachine["A"] = new PlayerStats { Races = 10, Wins = 4, Crashes = 7, TopSpeedKmh = 150, CatsPetted = 2, MostRollsInJump = 3, Updated = t0.AddHours(1) };
 var mA = new Profile { Id = "p2", Name = "Carol", Modified = t0 };
 a.Profiles.AddRange(new[] { sA, mA });
 var levelA = new LevelRecords { LevelName = "test-map", LastPlayed = t0.AddHours(1).ToLocalTime() };
@@ -40,7 +40,7 @@ a.Leaderboard.Levels["M"] = levelA;
 // ---- PC B (friend's): Alice renamed later, stats from machine B, one run of its own + r2 deleted there
 var b = new SyncDoc();
 var sB = new Profile { Id = "p1", Name = "Alice-renamed", Modified = t0.AddHours(2) };
-sB.StatsByMachine["B"] = new PlayerStats { Races = 3, Wins = 1, Crashes = 2, TopSpeedKmh = 190, CatsHugged = 1, Updated = t0.AddHours(2) };
+sB.StatsByMachine["B"] = new PlayerStats { Races = 3, Wins = 1, Crashes = 2, TopSpeedKmh = 190, CatsPetted = 1, MostRollsInJump = 2, Updated = t0.AddHours(2) };
 sB.StatsByMachine["A"] = new PlayerStats { Races = 8, Wins = 3, Updated = t0 }; // older copy of A's stats
 var newcomer = new Profile { Id = "p3", Name = "Bob", Modified = t0 };
 b.Profiles.AddRange(new[] { sB, newcomer });
@@ -64,8 +64,9 @@ Check("newest rename wins", p1.Name == "Alice-renamed");
 Check("per-machine stats: newer A entry kept", p1.StatsByMachine["A"].Races == 10);
 Check("per-machine stats: B entry added", p1.StatsByMachine["B"].Races == 3);
 var total = PlayerStats.Sum(p1.StatsByMachine.Values);
-Check("totals summed (races 13, wins 5, crashes 9, cats 3)", total.Races == 13 && total.Wins == 5 && total.Crashes == 9 && total.CatsHugged == 3);
+Check("totals summed (races 13, wins 5, crashes 9, cats 3)", total.Races == 13 && total.Wins == 5 && total.Crashes == 9 && total.CatsPetted == 3);
 Check("top speed takes max (190)", Math.Abs(total.TopSpeedKmh - 190) < 0.01);
+Check("most rolls in one jump takes max (3)", total.MostRollsInJump == 3);
 var lm = m.Leaderboard.Levels["M"];
 Check("runs: union minus deleted (r1, r3)", lm.Runs.Select(r => r.Id).OrderBy(x => x).SequenceEqual(new[] { "r1", "r3" }));
 Check("deleted run stays deleted", m.Leaderboard.DeletedRunIds.Contains("r2") && !lm.Best.ContainsKey("p2"));

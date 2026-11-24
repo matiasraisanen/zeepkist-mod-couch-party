@@ -30,8 +30,13 @@ DLL="$REPO/bin/Release/CouchParty.dll"
 ssh_opts=(-o ConnectTimeout=8)
 
 game_running() {
-    # Windows OpenSSH runs cmd.exe by default.
-    ssh "${ssh_opts[@]}" "$HOST" 'tasklist /FI "IMAGENAME eq Zeepkist.exe" /NH' | grep -qi 'Zeepkist.exe'
+    # Windows OpenSSH runs cmd.exe by default. Stop here if the PC can't be reached (e.g. it's off).
+    local tasks
+    if ! tasks=$(ssh "${ssh_opts[@]}" "$HOST" 'tasklist /FI "IMAGENAME eq Zeepkist.exe" /NH'); then
+        echo "Can't reach $HOST over SSH. Is the PC on?" >&2
+        exit 1
+    fi
+    grep -qi 'Zeepkist.exe' <<<"$tasks"
 }
 
 cmd_libs() {

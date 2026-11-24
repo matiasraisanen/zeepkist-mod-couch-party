@@ -118,7 +118,7 @@ namespace CouchParty
         public int GotRammed { get; set; }   // they drove into you
         public int Knockouts { get; set; }   // you rammed someone and they crashed soon after
         public int WheelsKnockedOff { get; set; } // you rammed someone and they lost a wheel before recovering
-        public int CatsHugged { get; set; }        // walking cats hit by your car
+        public int CatsPetted { get; set; }        // walking cats hit by your car
         public int CatCrashes { get; set; }        // crashed after hitting a cat, before getting back on track
 
         // Air time: no wheel and no part of the car body touching anything (while racing).
@@ -130,6 +130,8 @@ namespace CouchParty
         public int FrontFlips { get; set; }
         public int Backflips { get; set; }
         public int BarrelRolls { get; set; }
+        public int MostFlipsInJump { get; set; }   // most flips in one jump (front or back), e.g. 3 = a triple
+        public int MostRollsInJump { get; set; }   // most barrel rolls in one jump
         // Flat spins landed, by size: a 540 counts as a 360, a 900 as a 720, anything from 1080 up as a 1080.
         public int Spins180 { get; set; }
         public int Spins360 { get; set; }
@@ -163,11 +165,12 @@ namespace CouchParty
                 t.OnFootFinishes += s.OnFootFinishes;
                 t.CarToCarHits += s.CarToCarHits; t.RammedOthers += s.RammedOthers; t.GotRammed += s.GotRammed; t.Knockouts += s.Knockouts;
                 t.WheelsKnockedOff += s.WheelsKnockedOff;
-                t.CatsHugged += s.CatsHugged;
+                t.CatsPetted += s.CatsPetted;
                 t.CatCrashes += s.CatCrashes;
                 t.AirSeconds += s.AirSeconds; t.LongestJumpSeconds = Math.Max(t.LongestJumpSeconds, s.LongestJumpSeconds);
                 t.BigJumps += s.BigJumps;
                 t.FrontFlips += s.FrontFlips; t.Backflips += s.Backflips; t.BarrelRolls += s.BarrelRolls;
+                t.MostFlipsInJump = Math.Max(t.MostFlipsInJump, s.MostFlipsInJump); t.MostRollsInJump = Math.Max(t.MostRollsInJump, s.MostRollsInJump);
                 t.Spins180 += s.Spins180; t.Spins360 += s.Spins360; t.Spins720 += s.Spins720; t.Spins1080 += s.Spins1080; t.BiggestSpin = Math.Max(t.BiggestSpin, s.BiggestSpin);
                 t.ReverseFinishes += s.ReverseFinishes;
                 if (s.Updated > t.Updated) t.Updated = s.Updated;

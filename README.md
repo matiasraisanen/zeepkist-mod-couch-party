@@ -46,7 +46,7 @@ These are mockups at 1080p with four players. In the game, the background is the
   - **Carnage:** crashes (hard crashes, ejects, timeouts) and wheels lost
   - **Bumper cars:** car-to-car hits, rammed others, got rammed, knockouts (rammed someone off or into a crash) and wheels knocked off
   - **Driving:** distance driven, top speed, air time and longest jump
-  - **Stunts:** front flips, backflips and barrel rolls landed, flat spins (180s, 360s, 720s and 1080s, plus the biggest in exact degrees)
+  - **Stunts:** big jumps, front flips, backflips and barrel rolls landed, the most flips and rolls in one jump, flat spins (180s, 360s, 720s and 1080s, plus the biggest in exact degrees)
 - Switch the Stats tab between **all time** and **tonight** (a button, or F9).
 - A Hall of Fame with gold, silver and bronze in every category: Crash king, Speed demon, Demolition derby, Wheel snatcher, Moon landing, Acrobat, Spin doctor, Moonwalker, No-wheel hero, Stuntman and more.
 
@@ -85,9 +85,9 @@ Requires **ZeepSDK** (Modkist installs it together with BepInEx).
 6. **Leaderboard tab:** every map, with the same "Best per player" / "All runs" switch. **x** removes one time (or all of a player's times in the per-player view).
 7. **Stats tab:** pick a player to see their stats in groups. The headline is how many maps they hold the #1 time on ("Holds 5 of 8 map records"). Click **Tonight** (or press **F9**) to see only this evening's stats. Tonight counts the same evening as the Tonight tab: this PC only, and it starts over after 6 hours without racing. In tonight's view the headline is on how many of tonight's maps the player has the fastest time ("Fastest on 2 of 6 maps tonight"), and **Map records held** becomes **Fastest on (maps)**. Click **All time** (or press **F9** again) to go back.
 8. **Tonight tab:** the evening's standings and **every map played tonight** (newest first) with who's fastest on it, plus a **Start a new evening** button.
-9. **Hall of Fame tab:** the top 3 (gold, silver, bronze) in each category: records held (Record hoarder), wins, records broken, PBs, top speed, distance, air time (Frequent flyer), longest jump (Moon landing), flips landed (Acrobat), barrel rolls landed (Corkscrew), biggest spin in exact degrees (Spin doctor), reverse finishes (Moonwalker), hard crashes (Crash king), ejects (Ejector seat), timeouts (Snail), wheels lost, finishes missing wheels, no-wheel finishes, on foot finishes (Stuntman), shortcut finishes, rammed others (Bumper car champ), knockouts (Demolition derby), wheels knocked off (Wheel snatcher), got rammed (Punching bag), cats hugged (Cat lover), crashes caused by cats (Cat's revenge).
+9. **Hall of Fame tab:** the top 3 (gold, silver, bronze) in each category: records held (Record hoarder), wins, records broken, PBs, top speed, distance, air time (Frequent flyer), longest jump (Moon landing), flips landed (Acrobat), barrel rolls landed (Corkscrew), most flips in one jump (Tumble dryer), most barrel rolls in one jump (Rotisserie), biggest spin in exact degrees (Spin doctor), reverse finishes (Moonwalker), hard crashes (Crash king), ejects (Ejector seat), timeouts (Snail), wheels lost, finishes missing wheels, no-wheel finishes, on foot finishes (Stuntman), shortcut finishes, rammed others (Bumper car champ), knockouts (Demolition derby), wheels knocked off (Wheel snatcher), got rammed (Punching bag), cats petted (Cat lover), crashes caused by cats (Cat's revenge).
 
-Stats tracked: lifetime stats per profile (races, wins, finishes, DNFs, shortcut finishes, personal bests, map records broken and held, crashes (including ejects and timeouts), wheels lost, finishes on 3 / 2 / 1 / 0 wheels, on foot finishes (ejected, then crossed the line without the car), car-to-car hits, rammed others, got rammed, knockouts (you rammed someone and they crashed soon after), wheels knocked off (you rammed someone and they lost a wheel before recovering), cats hugged (walking cats hit by your car), crashes caused by cats, distance driven, top speed, air time (total, longest jump, big jumps of 1 s+), stunts (front flips, backflips and barrel rolls landed, 180s / 360s / 720s / 1080s landed, biggest spin in exact degrees), reverse finishes, total time on the clock).
+Stats tracked: lifetime stats per profile (races, wins, finishes, DNFs, shortcut finishes, personal bests, map records broken and held, crashes (including ejects and timeouts), wheels lost, finishes on 3 / 2 / 1 / 0 wheels, on foot finishes (ejected, then crossed the line without the car), car-to-car hits, rammed others, got rammed, knockouts (you rammed someone and they crashed soon after), wheels knocked off (you rammed someone and they lost a wheel before recovering), cats petted (walking cats hit by your car), crashes caused by cats, distance driven, top speed, air time (total, longest jump), stunts (big jumps of 1 s+, front flips, backflips and barrel rolls landed, most flips and most rolls in one jump, 180s / 360s / 720s / 1080s landed, biggest spin in exact degrees), reverse finishes, total time on the clock).
 
 Leaderboard entries are linked to the profile, not the name, so renaming a profile renames all their old records too.
 
@@ -100,8 +100,8 @@ All stats come from local multiplayer races and only for players with a profile.
 - **Shortcut finish:** crossing the line with a checkpoint missed. Counted in your stats, but the time isn't saved to the leaderboard.
 - **DNF:** not crossing the line at all.
 - **Win:** the fastest valid finish in a race with 2 or more players.
-- **On foot finish:** a valid finish where you had already ejected (pressed Y) and your character crossed the line without the car.
-- **3, 2, 1 and no-wheel finishes:** a valid finish with that many wheels still on the car.
+- **On foot finish:** a valid finish where you had already ejected (pressed Y) and your character, thrown out like a rag doll, tumbled over the line without the car.
+- **3, 2, 1 and no-wheel finishes:** a valid finish, driving over the line with that many wheels still on the car. Not counted for on foot finishes.
 - **Reverse finish:** a valid finish where the car crosses the line rear wheels first, moving at least 120° off the direction the car is facing. Not counted for on foot finishes.
 
 **Crashes and wheels**
@@ -120,22 +120,24 @@ Light bumps count too (anything from about 11 km/h of impact). Two cars rubbing 
 
 How long the mark lasts:
 - **Staying on the wheels** (a pit manoeuvre, a shove): **3 seconds**. A crash within 3 seconds of the hit counts.
-- **Knocked into the air:** until they've been back on the track for a full second. A crash at the end of a long jump still counts. Landing on the map's flat ground below the track doesn't count as back: they're out of the race anyway.
+- **Knocked into the air:** until they've been back on the track for a full second. A crash at the end of a long jump still counts. Landing on the map's flat ground below the track doesn't count as back, because from there you usually can't get back to the track. If you do drive back onto it, the mark clears after a second there as usual.
 - **Never longer than 15 seconds.** Someone pushed off the map who doesn't crash within 15 seconds doesn't count. Not finishing the race is never a knockout on its own: in Zeepkist, one crash and you're out, and that's usually your own doing.
 - **Crossing the finish line** clears the mark.
+- **Reaching the finish anyway:** if they eject while marked (say, after landing on the map's flat ground) and still cross the finish line on foot, it's not a knockout. The eject still counts as their crash.
 
 Only the rammer can get a knockout. If you ram someone and *you* end up crashing, it's just your own crash: the other player gets nothing for it.
 
 - **Wheels knocked off:** uses the same mark as knockouts. Every wheel the rammed player loses while still marked counts for the rammer, whether it breaks off in the hit itself or when they're shoved into a wall or land badly afterwards. Losing a wheel while ramming someone else is just your own lost wheel.
 
 **Cats**
-- **Cat hugged:** while you're still racing, your car hits one of the walking cats at about 4 km/h or more. Each cat counts once per 2 seconds.
+- **Cat petted:** while you're still racing, your car hits one of the walking cats at about 4 km/h or more. Each cat counts once per 2 seconds.
 - **Crash caused by a cat:** you crash (including ejects and timeouts) soon after hitting a cat, using the same timing as knockouts: within 3 seconds if you stay on your wheels, longer if the cat sent you flying (up to 15 seconds).
 
 **Driving**
 - **Distance:** how far your car moves while racing (not after crashing or finishing).
 - **Top speed:** your car's highest speed in km/h, measured only while on the track (a wheel or the car body touching it) and not in the first second after landing. Falling off a cliff, or landing on the map's flat ground below the track, doesn't count.
-- **Air time / longest jump:** time with no wheel and no part of the car touching anything. Hops under 0.3 seconds don't count. **Big jumps** are 1 second or more.
+- **Air time:** time with no wheel and no part of the car touching anything. Hops under 0.3 seconds don't count. Air time counts every jump, even one that ends in a crash.
+- **Longest jump:** your longest single jump, but only one you landed like a stunt (see below): on the track, with no crash within 3 seconds.
 
 **Stunts**
 
@@ -144,10 +146,14 @@ During each jump, the mod adds up how far the car turns around its own three axe
 - **Barrel roll:** rolling sideways around the car's length.
 - **Spin:** turning flat, like a snowboard trick. Counted in half turns: 180, 360, 540, 720, 900 and 1080. Anything bigger is a "1080+".
 
+Only turning in the air counts. Riding all the way round inside a tube or a loop, with the wheels on the track, is not a barrel roll or a flip. If the car leaves the wall for a moment, only the turning during that moment counts, and that's far too little for a trick.
+
 Nobody lands at exactly 360°, so a flip or roll counts from 300° and a spin from 45° short of the half turn (135° is a 180, 315° is a 360). One jump can have several tricks, like "a backflip + 360".
 
 **A stunt only counts if you land it on the track:** the jump has to end on the real track, not on the map's flat ground below it (falling off the map can end in silly 10x spins), and no crash (including ejects and timeouts) within **3 seconds** of touching down. Crossing the finish line mid-air counts as landing it. Stunts show up as moments on the results screen.
 
+- **Big jumps:** 1 second or more in the air, landed like a stunt.
+- **Flips and barrel rolls:** every full turn adds one, so a double backflip adds 2 to Backflips. **Most flips in one jump** and **most rolls in one jump** keep your best single jump: a triple barrel roll is 3.
 - **Spin counters:** 180s, 360s, 720s and 1080s. The in-between sizes go with the one below: a 540 counts as a 360, a 900 as a 720, and anything from 1080 up as a 1080. **Biggest spin** is your best one in exact degrees (like 2245°), and that's what the Spin doctor in the Hall of Fame ranks.
 
 The mod finds out which way each car model faces at the start of every race, as soon as the car rolls straight at 20 km/h or more. Until then, nothing counts.
@@ -213,7 +219,7 @@ Send `BepInEx\LogOutput.log` afterwards. The mod writes `[debug]` lines into it.
 - [ ] The log has `Scene: '...'` lines. Send them if popups never appear.
 - [ ] Crossing the finish logs `Player N crossed the finish: X wheel(s) on` (plus `ON FOOT` after ejecting). Dying without finishing logs nothing.
 - [ ] After a race, the Stats tab shows races, crashes, distance and top speed. The log has `Stats: PlayersReady[...] -> Player N` lines; check they match who was who.
-- [ ] Big jumps log `Player N: 1.4 s of air time!`; the Stats tab shows air time and longest jump.
+- [ ] Big jumps log `Stunt landed! Player N: big jump (1.4 s in the air; ...)`; the Stats tab shows air time and longest jump under Driving, big jumps under Stunts.
 - [ ] Knockouts log `Knockout! Player X took out Player Y (...)`, and wheels knocked off log `Wheel knocked off! ...`.
 - [ ] F8 → Backups lists a backup after starting the game; Restore works and the "before restore" backup appears.
 - [ ] Deleting and re-adding a player shows "Welcome back ... Restored their records and stats".
