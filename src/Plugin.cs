@@ -16,7 +16,7 @@ namespace CouchParty
     {
         public const string Guid = "com.skofdo.couchparty";
         public const string Name = "Couch Party";
-        public const string Version = "1.0.6";
+        public const string Version = "1.1.0";
 
         internal static ManualLogSource Log;
 
@@ -141,9 +141,10 @@ namespace CouchParty
         private void OnRoundStarted()
         {
             RecordedThisRound = false;
-            RoundStartTime = UnityEngine.Time.unscaledTime;
+            RoundStartTime = UnityEngine.Time.time; // game time: stops while paused, like the stats
             Debug("Round started.");
             StatsTracker.OnRoundStarted();
+            CouchUI.Instance?.HideResults(); // in case the results screen closed without telling us (Retry)
             if (!Game.IsLocalMultiplayer()) return;
             LiveRecords.OnRoundStarted();
             CouchUI.Instance?.ShowPreRace();
@@ -179,7 +180,7 @@ namespace CouchParty
         internal static void Debug(string message)
         {
             if (DebugLogging == null || !DebugLogging.Value) return;
-            string race = RoundStartTime >= 0 ? $"race {UnityEngine.Time.unscaledTime - RoundStartTime:0.00} s" : "no race";
+            string race = RoundStartTime >= 0 ? $"race {UnityEngine.Time.time - RoundStartTime:0.00} s" : "no race";
             Log.LogInfo($"[debug {DateTime.Now:HH:mm:ss.fff} | {race}] {message}");
         }
     }

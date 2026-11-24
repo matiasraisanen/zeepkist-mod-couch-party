@@ -39,7 +39,7 @@ namespace CouchParty
         /// <summary>Stats per machine (each PC only adds to its own entry); the totals are their sum.</summary>
         public Dictionary<string, PlayerStats> StatsByMachine { get; set; } = new Dictionary<string, PlayerStats>();
 
-        /// <summary>"Reset stats" time (UTC): machine entries not updated since then are dropped.</summary>
+        /// <summary>Stats reset time (UTC, the Profiles tab's Reset or Start fresh): machine entries not updated since then are dropped.</summary>
         public DateTime StatsResetAt { get; set; }
 
         /// <summary>This player was reset (UTC): their leaderboard times from before then are dropped on every PC.</summary>
@@ -132,7 +132,7 @@ namespace CouchParty
         // Air time: no wheel and no part of the car body touching anything (while racing).
         public double AirSeconds { get; set; }
         public float LongestJumpSeconds { get; set; }
-        public int BigJumps { get; set; }          // 1 second or more in the air
+        public int BigJumps { get; set; }          // 2 seconds or more in the air, landed
 
         // Stunts: full rotations in the air, landed without crashing.
         public int FrontFlips { get; set; }
@@ -267,10 +267,10 @@ namespace CouchParty
 
         public Dictionary<string, BestTime> Best { get; set; } = new Dictionary<string, BestTime>();
 
-        /// <summary>Every valid run (several per player), fastest kept; capped at <see cref="MaxRuns"/>.</summary>
+        /// <summary>Valid runs: each player's <see cref="RunsPerPlayer"/> fastest on this map.</summary>
         public List<RunRecord> Runs { get; set; } = new List<RunRecord>();
 
-        public const int MaxRuns = 200;
+        public const int RunsPerPlayer = 10;
 
         /// <summary>One time per player, fastest first.</summary>
         public List<BestTime> Ranked() => Best.Values.OrderBy(b => b.Time).ToList();
@@ -281,8 +281,18 @@ namespace CouchParty
         public void AddRun(RunRecord run)
         {
             Runs.Add(run);
-            if (Runs.Count > MaxRuns)
-                Runs = Runs.OrderBy(r => r.Time).Take(MaxRuns).ToList();
+            Runs = Trim(Runs);
+        }
+
+        /// <summary>
+        /// Each player's <see cref="RunsPerPlayer"/> fastest runs, fastest first. Kept per player (not for the map
+        /// as a whole), so a slower player's best time never drops off a busy map.
+        /// </summary>
+        public static List<RunRecord> Trim(IEnumerable<RunRecord> runs)
+        {
+            var ordered = runs.OrderBy(r => r.Time).ThenBy(r => r.Id, StringComparer.Ordinal).ToList();
+            var keep = new HashSet<RunRecord>(ordered.GroupBy(r => r.ProfileId).SelectMany(g => g.Take(RunsPerPlayer)));
+            return ordered.Where(keep.Contains).ToList();
         }
 
         /// <summary>Removes one run and recalculates that player's best from what's left.</summary>
@@ -618,18 +628,6 @@ namespace CouchParty
             SaveLeaderboard();
             Game.ApplyNames();
             Plugin.Log.LogInfo(profilesToo ? "Started fresh: everything wiped." : "Started fresh: stats and leaderboards wiped.");
-        }
-
-        /// <summary>Clears every profile's stats on all machines (the reset time travels with sync).</summary>
-        public static void ResetAllStats()
-        {
-            foreach (var p in Profiles.Profiles.Concat(Profiles.Archived))
-            {
-                p.StatsByMachine.Clear();
-                p.StatsResetAt = DateTime.UtcNow;
-            }
-            StatsChanged();
-            SaveProfiles();
         }
 
         // ---------------- Sync document ----------------

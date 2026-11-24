@@ -365,8 +365,10 @@ namespace CouchParty
         internal static int NumberBase(List<GameResult> results)
         {
             int numberBase = Plugin.PlayerNumberBase.Value;
-            if (numberBase < 0) numberBase = results.Count > 0 && results.Min(r => r.PlayerNum) >= 1 ? 1 : 0;
-            return numberBase;
+            if (numberBase >= 0) return numberBase;
+            // Auto: the game counts from 0 (seen in the logs). Only a player number of 4 or more proves it counts
+            // from 1. Not "lowest number is 1": that's also what 0-based results look like when Player 1 isn't racing.
+            return results.Any(r => r.PlayerNum >= MaxSlots) ? 1 : 0;
         }
 
         internal static bool IsValidRaceTime(float t) => IsValidTime(t);

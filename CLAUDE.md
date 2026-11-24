@@ -16,8 +16,11 @@ backups, and optional sync between PCs through your own small server (`server/`)
   made-up player names (Alice, Bob, Carol), never real players' names or gamer tags.
 - **Names:** "car-to-car hits" (not bumps or collisions); a hit has a **rammer**. An empty value is an
   en dash (`\u2013`, `NoValue` in `CouchUI`), except on the Tonight tab, where zeros stay.
-- **UI:** IMGUI scaled to a 1080p reference (`Screen.height / 1080`). It must work at 16:9 and on
-  ultrawide. The F8 window is 1150 x 900 at reference size; the Stats tab should fit without
+- **UI:** after a click that changes what's drawn (tab, rows added/removed, a section opened), call
+  `Redraw()` (`GUIUtility.ExitGUI`), never inside a try/catch, or IMGUI logs layout errors for that event.
+  IMGUI scaled to a 1080p reference (`Screen.height / 1080`). It must work at 16:9 and on
+  ultrawide. The F8 window is 1560 x 900 at reference size (4 columns of stats and Hall of Fame cards;
+  3 or 2 when the screen is too narrow); the Stats tab should fit without
   scrolling at 16:9.
 - **Personal setup:** contributors can keep their own notes (machines, deploy steps, workflow) in
   `CLAUDE.local.md`, which is gitignored.
@@ -38,7 +41,7 @@ from NuGet.
 dotnet run --project tests/CouchParty.Tests -c Release
 ```
 
-The tests (50 checks) cover sync merging (including joining duplicate Steam profiles and PC names), old save files, Start fresh and the version guard. They must
+The tests (52 checks) cover sync merging (including joining duplicate Steam profiles and PC names), old save files, Start fresh and the version guard. They must
 print `ALL PASSED`.
 
 ```bash
@@ -133,7 +136,9 @@ timestamp and the race time).
   - `actuallyFinished` means they really crossed the line.
 - **Telling crash types apart** (`DamageCharacterScript.KillCharacter`):
   - **Eject:** caller `ReadyToReset.cs`, forced, reason `Gameplay_Crashed`.
-  - **Hard crash:** caller `DamageCharacterScript.cs`, not forced.
+  - **Hard crash:** caller `DamageCharacterScript.cs`, not forced: the driver (who sticks out of the
+    soapbox) hits something. Also seen: `DamageCarScript.cs`, not forced, probably the car itself
+    breaking (seen after a 76 m fall). Both count as a hard crash.
   - **Timeout:** comes through `ReadyToReset.SetLocalTimeOutResults` first.
 - **Contact checks:** `DamageCharacterScript.isdead` (character), `DamageWheel.isdead` (wheel broken
   off), `New_CustomWheel.isGrounded` and `.hit` (wheel raycast; its collider tells track vs ground floor).
@@ -151,17 +156,21 @@ timestamp and the race time).
     real track for 1 s; at most 15 s.
   - **What counts:** a crash, eject or timeout while marked is the rammer's knockout, unless they
     still cross the finish on foot (held until the race ends). Not finishing is never a knockout. Crashing after ramming someone is just your own crash.
+- **Wheels lost:** only while still racing. A crash can break off some wheels (more the harder it is);
+  those, and any lost after an eject, don't count.
 - **Wheels knocked off:** any wheel the rammed player loses while still marked.
 - **Crash caused by a cat:** same timing as knockouts.
-- **Top speed:** only on the real track, not in the first second after landing.
-- **Air time:** no wheel and no car-body contact; hops under 0.3 s don't count. Big jump: 1 s or more, counted like a stunt (landed on the
+- **Top speed:** only with at least two wheels on the real track (body contact alone doesn't count), not in the
+  first second after landing. New race bests from 150 km/h up are logged (wheels on track, falling speed).
+  Booster track parts are not treated specially (decided 2026-11-24: not worth the complexity).
+- **Air time:** no wheel and no car-body contact; hops under 0.3 s don't count. Big jump: 2 s or more (1 s was far too common), counted like a stunt (landed on the
   real track, no crash within 3 s). Longest jump too. Air time counts every jump.
 - **Stunts:** rotation around the car's own axes during a jump.
   - **Sizes:** flips and rolls count from 300°; spins count in half turns with 45° slack.
   - **Counters:** 180s / 360s / 720s / 1080s; 540 goes with 360, 900 with 720.
   - **Biggest spin:** exact degrees (Spin doctor).
   - **What counts:** only a landing on the real track (not the ground floor), with no crash within
-    3 s. Crossing the finish mid-air counts.
+    3 s. Crossing the finish mid-air counts, only for a valid finish (held until the results).
 - **Reverse finish:** valid finish moving at least 120° off the car's nose (not on foot).
 - **Finishes group:** valid finishes with 3/2/1/0-wheel, on foot and reverse indented below,
   then shortcut finishes.
@@ -183,6 +192,12 @@ timestamp and the race time).
   shows "update the mod on this PC", so it can't drop newer stat fields.
 - **Server:** keys are per PC (`python /app/server.py addkey|listkeys|removekey <name>` inside the
   container); see `server/README.md`.
+
+## Timing
+
+All race timing (air time, jumps, knockout marks, stunt landings, cats, moments, the debug log's race time) uses
+game time (`Time.time`), which stops while the game is paused. Real time once turned a paused jump into a
+164 s "big jump". UI timers (popups, flashes) and sync use real time. The log says `Game paused` / `Game resumed`.
 
 ## Tuning with the debug log
 

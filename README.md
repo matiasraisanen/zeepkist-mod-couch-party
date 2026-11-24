@@ -37,7 +37,7 @@ These are mockups at 1080p with four players. In the game, the background is the
 **🏆 Local leaderboards**
 - Every local multiplayer race is saved per map. A time only counts if you pass every checkpoint, so shortcuts don't count.
 - A results panel styled like the game's own screen shows **NEW PB -0.512**, **+1.234 to record**, and a banner when the record falls ("Carol beat Alice's 0:13.000 by 0.754 s").
-- Two views: best time per player, or all runs, so you can see who owns the whole top 10.
+- Two views: best time per player, or all runs, so you can see who owns the whole top 10. Each player's 10 fastest times per map are kept.
 - The map's top 3 pops up when a race starts, and **NEW MAP RECORD!** appears the moment someone crosses the line with a record time.
 
 **📊 Stats and Hall of Fame**
@@ -88,11 +88,11 @@ Requires **ZeepSDK** (Modkist installs it together with BepInEx).
 
    A new evening starts after 6 hours without racing (`New evening after hours` in the config); restarting the game in between doesn't reset it.
 6. **Leaderboard tab:** every map, with the same "Best per player" / "All runs" switch. **x** removes one time (or all of a player's times in the per-player view).
-7. **Stats tab:** pick a player to see their stats in groups. The headline is how many maps they hold the #1 time on ("Holds 5 of 8 map records"). Click **Tonight** (or press **F9**) to see only this evening's stats. Tonight counts the same evening as the Tonight tab: this PC only, and it starts over after 6 hours without racing. In tonight's view the headline is on how many of tonight's maps the player has the fastest time ("Fastest on 2 of 6 maps tonight"), and **Map records held** becomes **Fastest on (maps)**. Click **All time** (or press **F9** again) to go back.
-8. **Tonight tab:** the evening's standings and **every map played tonight** (newest first) with who's fastest on it, plus a **Start a new evening** button.
+7. **Stats tab:** one player's stats in groups, all on one screen. Click the player's name (▼) to pick someone else. The headline is how many maps they hold the #1 time on ("Holds 5 of 8 map records"). Click **Tonight** (or press **F9**) to see only this evening's stats. Tonight counts the same evening as the Tonight tab: this PC only, and it starts over after 6 hours without racing. In tonight's view the headline is on how many of tonight's maps the player has the fastest time ("Fastest on 2 of 6 maps tonight"), and **Map records held** becomes **Fastest on (maps)**. Click **All time** (or press **F9** again) to go back.
+8. **Tonight tab:** the evening's standings, **Tonight's awards** and **every map played tonight** (newest first) with who's fastest on it, plus a **Start a new evening** button. The awards show who leads tonight in knockouts (Demolition derby), getting rammed (Punching bag), hard crashes (Crash king), cats petted (Cat lover), the longest landed jump (Moon landing), the biggest spin (Spin doctor) and on foot finishes (Stuntman). An award shows up once someone has scored in it; a tie names everyone on top.
 9. **Hall of Fame tab:** the top 3 (gold, silver, bronze) in each category: records held (Record hoarder), wins, records broken, PBs, top speed, distance, air time (Frequent flyer), longest jump (Moon landing), flips landed (Acrobat), barrel rolls landed (Corkscrew), most flips in one jump (Tumble dryer), most barrel rolls in one jump (Rotisserie), biggest spin in exact degrees (Spin doctor), reverse finishes (Moonwalker), hard crashes (Crash king), ejects (Ejector seat), timeouts (Snail), wheels lost, finishes missing wheels, no-wheel finishes, on foot finishes (Stuntman), shortcut finishes, rammed others (Bumper car champ), knockouts (Demolition derby), wheels knocked off (Wheel snatcher), got rammed (Punching bag), cats petted (Cat lover), crashes caused by cats (Cat's revenge).
 
-Stats tracked: lifetime stats per profile (races, wins, finishes, DNFs, shortcut finishes, personal bests, map records broken and held, crashes (including ejects and timeouts), wheels lost, finishes on 3 / 2 / 1 / 0 wheels, on foot finishes (ejected, then crossed the line without the car), car-to-car hits, rammed others, got rammed, knockouts (you rammed someone and they crashed soon after), wheels knocked off (you rammed someone and they lost a wheel before recovering), cats petted (walking cats hit by your car), crashes caused by cats, distance driven, top speed, air time (total, longest jump), stunts (big jumps of 1 s+, front flips, backflips and barrel rolls landed, most flips and most rolls in one jump, 180s / 360s / 720s / 1080s landed, biggest spin in exact degrees), reverse finishes, total time on the clock).
+Stats tracked: lifetime stats per profile (races, wins, finishes, DNFs, shortcut finishes, personal bests, map records broken and held, crashes (including ejects and timeouts), wheels lost, finishes on 3 / 2 / 1 / 0 wheels, on foot finishes (ejected, then crossed the line without the car), car-to-car hits, rammed others, got rammed, knockouts (you rammed someone and they crashed soon after), wheels knocked off (you rammed someone and they lost a wheel before recovering), cats petted (walking cats hit by your car), crashes caused by cats, distance driven, top speed, air time (total, longest jump), stunts (big jumps of 2 s+, front flips, backflips and barrel rolls landed, most flips and most rolls in one jump, 180s / 360s / 720s / 1080s landed, biggest spin in exact degrees), reverse finishes, total time on the clock).
 
 Leaderboard entries are linked to the profile, not the name, so renaming a profile renames all their old records too.
 
@@ -111,7 +111,7 @@ All stats come from local multiplayer races and only for players with a profile.
 
 **Crashes and wheels**
 - **Crash:** your race ends before the finish line. That's a hard crash (you hit something or landed badly), an eject (you pressed Y), or a timeout (you were too slow for 10 seconds and the game ejected you). All three count as a crash, for knockouts and for "crashes caused by cats" too. The Stats tab also shows how many were hard crashes, ejects and timeouts. Ejects are recognised from how the game ends your race; if one is ever labelled wrong, it still counts as a crash.
-- **Wheels lost:** each wheel that breaks off before you finish.
+- **Wheels lost:** each wheel that breaks off while you're still racing. Wheels that fly off when you crash or eject don't count.
 
 **Bumper cars**
 - **Car-to-car hit:** while both of you are still racing, your car (body or wheels) hits another racer's car or character at an impact of at least about 11 km/h. Both players get one. The same two players can only score one hit per second, so a long scrape counts once.
@@ -140,8 +140,8 @@ Only the rammer can get a knockout. If you ram someone and *you* end up crashing
 
 **Driving**
 - **Distance:** how far your car moves while racing (not after crashing or finishing).
-- **Top speed:** your car's highest speed in km/h, measured only while on the track (a wheel or the car body touching it) and not in the first second after landing. Falling off a cliff, or landing on the map's flat ground below the track, doesn't count.
-- **Air time:** time with no wheel and no part of the car touching anything. Hops under 0.3 seconds don't count. Air time counts every jump, even one that ends in a crash.
+- **Top speed:** your car's highest speed in km/h while driving on the track: at least two wheels on it, and not in the first second after landing. Falling off a cliff, scraping a wall on the way down, or driving on the map's flat ground below the track doesn't count.
+- **Air time:** time with no wheel and no part of the car touching anything. Hops under 0.3 seconds don't count. Air time counts every jump, even one that ends in a crash. Pausing the game doesn't count: all the timings in this list use game time, which stops while paused.
 - **Longest jump:** your longest single jump, but only one you landed like a stunt (see below): on the track, with no crash within 3 seconds.
 
 **Stunts**
@@ -155,9 +155,9 @@ Only turning in the air counts. Riding all the way round inside a tube or a loop
 
 Nobody lands at exactly 360°, so a flip or roll counts from 300° and a spin from 45° short of the half turn (135° is a 180, 315° is a 360). One jump can have several tricks, like "a backflip + 360".
 
-**A stunt only counts if you land it on the track:** the jump has to end on the real track, not on the map's flat ground below it (falling off the map can end in silly 10x spins), and no crash (including ejects and timeouts) within **3 seconds** of touching down. Crossing the finish line mid-air counts as landing it. Stunts show up as moments on the results screen.
+**A stunt only counts if you land it on the track:** the jump has to end on the real track, not on the map's flat ground below it (falling off the map can end in silly 10x spins), and no crash (including ejects and timeouts) within **3 seconds** of touching down. Crossing the finish line mid-air counts as landing it, but only for a valid finish: falling off the map through the finish line without every checkpoint (a shortcut finish) doesn't count. The same goes for big jumps and the longest jump. Stunts show up as moments on the results screen.
 
-- **Big jumps:** 1 second or more in the air, landed like a stunt.
+- **Big jumps:** 2 seconds or more in the air, landed like a stunt.
 - **Flips and barrel rolls:** every full turn adds one, so a double backflip adds 2 to Backflips. **Most flips in one jump** and **most rolls in one jump** keep your best single jump: a triple barrel roll is 3.
 - **Spin counters:** 180s, 360s, 720s and 1080s. The in-between sizes go with the one below: a 540 counts as a 360, a 900 as a 720, and anything from 1080 up as a 1080. **Biggest spin** is your best one in exact degrees (like 2245°), and that's what the Spin doctor in the Hall of Fame ranks.
 
@@ -177,7 +177,7 @@ Use the same profiles, stats and leaderboards on several PCs, for example at a f
 - **Offline:** every PC keeps a full copy and works offline.
 - **When it syncs:** when the game starts, a few seconds after each race or profile change, and with **Sync now**.
 - **Merging, so nothing is lost:**
-  - All runs from every PC are combined. Times you removed and maps you cleared stay removed.
+  - All runs from every PC are combined (each player's 10 fastest per map). Times you removed and maps you cleared stay removed.
   - Stats are counted per PC and added together.
   - Renames and archiving: the newest change wins.
   - Reset and Delete win over older data: a PC that was offline can't bring back the stats, times or profile.
@@ -219,15 +219,16 @@ Notes:
 
 Send `BepInEx\LogOutput.log` afterwards. The mod writes `[debug]` lines into it.
 
-- [ ] The log says `Couch Party 1.0.6 loaded`.
+- [ ] The log says `Couch Party 1.1.0 loaded`.
 - [ ] The top-3 popup appears for a few seconds when a race starts, then fades. It doesn't appear on the player-select screen.
 - [ ] F8 > Stats: **Tonight** (or F9) shows only tonight's races; **All time** (or F9 again) goes back. After a race, both views went up by the same amount.
+- [ ] F8 > Stats: every stat is visible without scrolling. F8 > Tonight: **Tonight's awards** name tonight's leaders (a ram that ends in a crash shows up under Demolition derby).
 - [ ] Beating the map record shows "NEW MAP RECORD!" right after crossing the finish (or at the latest on the results screen).
 - [ ] With the F8 window open, clicking inside it no longer clicks game buttons behind it.
 - [ ] The log has `Scene: '...'` lines. Send them if popups never appear.
 - [ ] Crossing the finish logs `Player N crossed the finish: X wheel(s) on` (plus `ON FOOT` after ejecting). Dying without finishing logs nothing.
 - [ ] After a race, the Stats tab shows races, crashes, distance and top speed. The log has `Stats: PlayersReady[...] -> Player N` lines; check they match who was who.
-- [ ] Big jumps log `Stunt landed! Player N: big jump (1.4 s in the air; ...)`; the Stats tab shows air time and longest jump under Driving, big jumps under Stunts.
+- [ ] Big jumps log `Stunt landed! Player N: big jump (2.4 s in the air; ...)`; the Stats tab shows air time and longest jump under Driving, big jumps under Stunts.
 - [ ] Knockouts log `Knockout! Player X took out Player Y (...)`, and wheels knocked off log `Wheel knocked off! ...`.
 - [ ] F8 → Backups lists a backup after starting the game; Restore works and the "before restore" backup appears.
 - [ ] Deleting and re-adding a player shows "Welcome back ... Restored their records and stats".

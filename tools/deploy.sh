@@ -82,7 +82,7 @@ summarize_log() {
     local f="$1"
     echo "Saved $f"
     grep -m1 'Couch Party .* loaded' "$f" || echo "  (no 'Couch Party ... loaded' line: did the mod load?)"
-    echo "  $(grep -c '\[debug\]' "$f" || true) debug lines"
+    echo "  $(grep -c '\[debug ' "$f" || true) debug lines"
     # Errors and exceptions, from any mod: a failed patch elsewhere can still break things.
     local errs
     errs=$(grep -nE '^\[(Error|Fatal)|Exception' "$f" || true)

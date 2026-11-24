@@ -244,5 +244,23 @@ Check("reset: times from before the reset gone, newer one kept (26.0)", rm.Leade
       Math.Abs(rm.Leaderboard.Levels["R"].Best["fay"].Time - 26f) < 0.001);
 Check("reset: same result both ways", Merge(rb, ra).Leaderboard.Levels["R"].Runs.Select(r => r.Id).SequenceEqual(new[] { "fr2" }));
 
+// ---- Times kept per player: each player's 10 fastest per map, so a slow player's best never drops off
+var ka = new SyncDoc();
+var kl = new LevelRecords { LevelName = "test-map", LastPlayed = t0.ToLocalTime() };
+for (int i = 0; i < 15; i++) kl.Runs.Add(new RunRecord { Id = $"fast{i}", ProfileId = "p1", Name = "Alice", Time = 20f + i, Machine = "A", Date = t0 });
+kl.Runs.Add(new RunRecord { Id = "slow", ProfileId = "p2", Name = "Carol", Time = 99f, Machine = "A", Date = t0 });
+kl.RebuildBest();
+kl.Best["p1"].Finishes = 40;
+ka.Leaderboard.Levels["K"] = kl;
+var kb = new SyncDoc();
+var klb = new LevelRecords { LevelName = "test-map", LastPlayed = t0.ToLocalTime() };
+klb.Runs.Add(new RunRecord { Id = "fast0", ProfileId = "p1", Name = "Alice", Time = 20f, Machine = "A", Date = t0 });
+klb.RebuildBest();
+klb.Best["p1"].Finishes = 55;
+kb.Leaderboard.Levels["K"] = klb;
+var km = Merge(ka, kb).Leaderboard.Levels["K"];
+Check("runs: 10 per player kept, the slow player's best too", km.Runs.Count(r => r.ProfileId == "p1") == 10 && km.Best.ContainsKey("p2"));
+Check("runs: finish count is the higher one, whichever PC merges", km.Best["p1"].Finishes == 55 && Merge(kb, ka).Leaderboard.Levels["K"].Best["p1"].Finishes == 55);
+
 Console.WriteLine(failures == 0 ? "\nALL PASSED" : $"\n{failures} FAILED");
 return failures;

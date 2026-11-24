@@ -20,10 +20,10 @@ namespace CouchParty
         // Main window
         private bool _open;
         private Tab _tab = Tab.Players;
-        private Rect _windowRect = new Rect(60, 60, 1150, 900);
+        private Rect _windowRect = new Rect(60, 60, 1560, 900);
 
-        /// <summary>Wide enough for three columns of stats / Hall of Fame cards.</summary>
-        private bool Wide => _windowRect.width >= 1050;
+        /// <summary>Columns of stats / Hall of Fame cards that fit: 4 at full width, fewer on a small screen.</summary>
+        private int Columns => _windowRect.width >= 1450 ? 4 : _windowRect.width >= 1050 ? 3 : 2;
         private Vector2 _scroll;
 
         // Players tab
@@ -44,7 +44,6 @@ namespace CouchParty
         private string _expandedLevel;
         private string _confirmClearLevel;
         private string _confirmRemove;
-        private bool _confirmResetStats;
         private List<Backups.Entry> _backupList;
         private string _confirmRestore;
         private string _flash;
@@ -52,6 +51,8 @@ namespace CouchParty
         private string _statsProfileId;
         private bool _lbAllRuns;        // Leaderboard tab: all runs instead of best per player
         private bool _statsTonight;     // Stats tab: tonight's stats instead of all time
+        private bool _pickerOpen;       // Stats tab: the player list under the name is open
+        private Rect _pickerRect;       // where the name button was drawn (last repaint)
         private bool _resultsAllRuns;   // results screen: same
 
         // Overlays
@@ -75,6 +76,7 @@ namespace CouchParty
         private GUIStyle _title, _header, _label, _small, _row, _gold, _green, _dim, _panel, _button, _tabOn, _tabOff, _field;
         // Profiles tab: colour-coded buttons (the same colour on the button and its confirmation), chips, stats link.
         private GUIStyle _btnArchive, _btnReset, _btnDelete, _btnRestore, _rowHover, _chip, _statsLink, _statsLinkHover;
+        private GUIStyle _picker, _pickItem, _pickItemOn, _pickRaces;
         private Texture2D _panelTex;
 
         // "Loaded" hint shown in the corner for a while after start-up.
@@ -169,6 +171,7 @@ namespace CouchParty
             {
                 _open = !_open;
                 _pickingForSlot = -1;
+                ForgetRowState();
                 _friendPicker = false;
             }
 
@@ -244,14 +247,16 @@ namespace CouchParty
             GUILayout.Label("Couch Party", _title);
             GUILayout.FlexibleSpace();
             string syncLabel = Sync.Busy ? "Sync..." : Sync.LastError != null ? "Sync (!)" : "Sync";
-            if (GUILayout.Button(syncLabel, _tab == Tab.Sync ? _tabOn : _button, GUILayout.Width(120))) OpenSyncTab();
+            if (GUILayout.Button(syncLabel, _tab == Tab.Sync ? _tabOn : _button, GUILayout.Width(120))) { OpenSyncTab(); ForgetRowState(); Redraw(); }
             if (GUILayout.Button("Backups", _tab == Tab.Backups ? _tabOn : _button, GUILayout.Width(140)))
             {
                 _tab = Tab.Backups;
                 _backupList = null;
                 _scroll = Vector2.zero;
+                ForgetRowState();
+                Redraw();
             }
-            if (GUILayout.Button("Close", _button, GUILayout.Width(110))) _open = false;
+            if (GUILayout.Button("Close", _button, GUILayout.Width(110))) { _open = false; ForgetRowState(); Redraw(); }
             GUILayout.EndHorizontal();
             if (Store.LoadWarning != null) GUILayout.Label(Store.LoadWarning, _gold);
 
@@ -265,7 +270,8 @@ namespace CouchParty
             GUILayout.EndHorizontal();
             GUILayout.Space(8);
 
-            _scroll = GUILayout.BeginScrollView(_scroll);
+            // Vertical scrolling only: a horizontal bar would just mean a few pixels of rounding.
+            _scroll = GUILayout.BeginScrollView(_scroll, false, false, GUIStyle.none, GUI.skin.verticalScrollbar);
             switch (_tab)
             {
                 case Tab.Players: DrawPlayersTab(); break;
@@ -293,7 +299,24 @@ namespace CouchParty
                 _scroll = Vector2.zero;
                 _pickingForSlot = -1;
                 _friendPicker = false;
+                ForgetRowState();
+                Redraw();
             }
+        }
+
+        /// <summary>
+        /// After a click that changes what's drawn (another tab, a row added or removed), stop drawing this event.
+        /// IMGUI would otherwise lay out the new controls against the old layout ("Getting control N's position in a
+        /// group with only N controls"). The next frame draws everything fresh. Never call it inside a try/catch.
+        /// </summary>
+        private static void Redraw() => GUIUtility.ExitGUI();
+
+        /// <summary>Open confirmations and the rename box belong to the screen they were opened on.</summary>
+        private void ForgetRowState()
+        {
+            _confirmDeleteId = _confirmResetId = _renamingId = null;
+            _confirmRestore = _confirmClearLevel = _confirmRemove = null;
+            _confirmNewEvening = _confirmForget = _wipeOpen = _pickerOpen = false;
         }
 
         // ---------------- Players tab ----------------
@@ -316,7 +339,10 @@ namespace CouchParty
                 GUILayout.FlexibleSpace();
                 if (active) GUILayout.Label("in game", _green, GUILayout.Width(90));
                 if (GUILayout.Button(_pickingForSlot == slot ? "Cancel" : "Choose", _button, GUILayout.Width(110)))
+                {
                     _pickingForSlot = _pickingForSlot == slot ? -1 : slot;
+                    Redraw();
+                }
                 GUILayout.EndHorizontal();
 
                 if (_pickingForSlot == slot) DrawProfileChooser(slot);
@@ -334,11 +360,11 @@ namespace CouchParty
             if (profiles.Count == 0)
             {
                 GUILayout.Label("No profiles yet. Create some in the Profiles tab.", _dim);
-                if (GUILayout.Button("Go to Profiles", _button)) { _tab = Tab.Profiles; _pickingForSlot = -1; }
+                if (GUILayout.Button("Go to Profiles", _button)) { _tab = Tab.Profiles; _pickingForSlot = -1; Redraw(); }
                 return;
             }
 
-            if (GUILayout.Button("(no profile)", _button)) { Store.AssignSlot(slot, null); _pickingForSlot = -1; Game.ApplyNames(); }
+            if (GUILayout.Button("(no profile)", _button)) { Store.AssignSlot(slot, null); _pickingForSlot = -1; Game.ApplyNames(); Redraw(); }
             foreach (var p in profiles)
             {
                 int inSlot = Array.IndexOf(Store.Profiles.SlotProfileIds, p.Id);
@@ -348,6 +374,7 @@ namespace CouchParty
                     Store.AssignSlot(slot, p);
                     _pickingForSlot = -1;
                     Game.ApplyNames();
+                    Redraw();
                 }
             }
         }
@@ -385,8 +412,9 @@ namespace CouchParty
             {
                 AddProfile(_newName.Trim(), 0);
                 _newName = "";
+                Redraw();
             }
-            if (GUILayout.Button("Add from Steam friends...", _button)) OpenFriendPicker();
+            if (GUILayout.Button("Add from Steam friends...", _button)) { OpenFriendPicker(); Redraw(); }
             DrawFlash();
             GUILayout.Space(10);
 
@@ -437,12 +465,13 @@ namespace CouchParty
                         Store.DeleteProfileForGood(p);
                         _confirmDeleteId = null;
                         Game.ApplyNames();
+                        Redraw();
                     }
                     if (GUILayout.Button("No", _button, GUILayout.Width(60))) _confirmDeleteId = null;
                 }
                 else if (archived)
                 {
-                    if (GUILayout.Button("Restore", _btnRestore, GUILayout.Width(120))) Store.RestoreProfile(p);
+                    if (GUILayout.Button("Restore", _btnRestore, GUILayout.Width(120))) { Store.RestoreProfile(p); Redraw(); }
                     if (GUILayout.Button("Delete", _btnDelete, GUILayout.Width(100))) { _confirmDeleteId = p.Id; _confirmResetId = null; }
                 }
                 else
@@ -453,7 +482,7 @@ namespace CouchParty
                         _renameText = p.Name;
                         _focusRename = true;
                     }
-                    if (GUILayout.Button("Archive", _btnArchive, GUILayout.Width(110))) { Store.ArchiveProfile(p); Game.ApplyNames(); }
+                    if (GUILayout.Button("Archive", _btnArchive, GUILayout.Width(110))) { Store.ArchiveProfile(p); Game.ApplyNames(); Redraw(); }
                     if (GUILayout.Button("Reset", _btnReset, GUILayout.Width(90))) { _confirmResetId = p.Id; _confirmDeleteId = null; }
                     if (GUILayout.Button("Delete", _btnDelete, GUILayout.Width(100))) { _confirmDeleteId = p.Id; _confirmResetId = null; }
                 }
@@ -479,7 +508,10 @@ namespace CouchParty
                 _statsProfileId = p.Id;
                 _statsTonight = false;
                 _tab = Tab.Stats;
+                _scroll = Vector2.zero;
+                ForgetRowState();
                 e.Use();
+                Redraw();
             }
             GUILayout.Space(4);
         }
@@ -622,10 +654,11 @@ namespace CouchParty
                 try { Backups.BackupNow(); FlashProfiles("Backup created."); }
                 catch (Exception e) { FlashProfiles("Backup failed: " + e.Message); }
                 _backupList = null;
+                Redraw();
             }
             if (GUILayout.Button("Open backup folder", _button, GUILayout.Width(240))) Backups.OpenFolder();
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Back", _button, GUILayout.Width(100))) _tab = Tab.Players;
+            if (GUILayout.Button("Back", _button, GUILayout.Width(100))) { _tab = Tab.Players; ForgetRowState(); Redraw(); }
             GUILayout.EndHorizontal();
             if (!string.IsNullOrEmpty(Plugin.ExtraBackupFolder.Value))
                 GUILayout.Label($"Also copied to: {Plugin.ExtraBackupFolder.Value}", _small);
@@ -655,9 +688,7 @@ namespace CouchParty
                         catch (Exception e) { FlashProfiles("Restore failed: " + e.Message); }
                         _confirmRestore = null;
                         _backupList = null;
-                        GUILayout.EndHorizontal();
-                        GUILayout.EndVertical();
-                        break;
+                        Redraw();
                     }
                     if (GUILayout.Button("No", _button, GUILayout.Width(60))) _confirmRestore = null;
                 }
@@ -681,7 +712,7 @@ namespace CouchParty
             GUILayout.Space(6);
             if (!_wipeOpen)
             {
-                if (GUILayout.Button("Start fresh...", _button, GUILayout.Width(200))) { _wipeOpen = true; _wipeText = ""; _wipeProfiles = false; }
+                if (GUILayout.Button("Start fresh...", _button, GUILayout.Width(200))) { _wipeOpen = true; _wipeText = ""; _wipeProfiles = false; Redraw(); }
                 return;
             }
 
@@ -708,9 +739,11 @@ namespace CouchParty
                 catch (Exception e) { FlashProfiles("Start fresh failed: " + e.Message); }
                 _wipeOpen = false;
                 _backupList = null;
+                GUI.enabled = true;
+                Redraw();
             }
             GUI.enabled = true;
-            if (GUILayout.Button("Cancel", _button, GUILayout.Width(110))) _wipeOpen = false;
+            if (GUILayout.Button("Cancel", _button, GUILayout.Width(110))) { _wipeOpen = false; Redraw(); }
             GUILayout.EndHorizontal();
             GUILayout.Label("The server keeps its own history of old versions in data/history/; delete those files there if you want them gone too.", _small);
             GUILayout.EndVertical();
@@ -782,7 +815,7 @@ namespace CouchParty
             GUILayout.BeginHorizontal();
             GUILayout.Label("Steam friends", _header);
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Back", _button, GUILayout.Width(100))) { _friendPicker = false; return; }
+            if (GUILayout.Button("Back", _button, GUILayout.Width(100))) { _friendPicker = false; Redraw(); }
             GUILayout.EndHorizontal();
 
             if (_friendsError != null) { GUILayout.Label(_friendsError, _dim); return; }
@@ -824,7 +857,7 @@ namespace CouchParty
             Store.Leaderboard.Levels.Values.Count(l => l.Ranked().FirstOrDefault()?.ProfileId == p.Id);
 
         /// <summary>"1 flip", "3 flips".</summary>
-        private static string Count(double v, string thing) => $"{v:0} {thing}{(Math.Round(v) == 1 ? "" : "s")}";
+        private static string Count(double v, string thing, string things = null) => $"{v:0} {(Math.Round(v) == 1 ? thing : things ?? thing + "s")}";
 
         private static string Km(double meters) => meters >= 1000 ? $"{meters / 1000:0.0} km" : $"{meters:0} m";
 
@@ -840,37 +873,30 @@ namespace CouchParty
 
         private void DrawStatsTab()
         {
+            // Every profile, also ones that haven't raced yet (they show zeros): the ones with races first.
             var profiles = ProfilesWithStats();
-            var opened = Store.GetProfile(_statsProfileId); // opened from the Profiles tab, maybe before their first race
-            if (opened != null && !opened.IsArchived && !profiles.Contains(opened)) profiles.Add(opened);
+            profiles.AddRange(Store.Profiles.Profiles.Where(p => !profiles.Contains(p)).OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase));
             if (profiles.Count == 0)
             {
-                GUILayout.Label("No stats yet. They build up as profiled players race in local multiplayer.", _dim);
+                GUILayout.Label("No profiles yet. Add some in the Profiles tab; their stats build up as they race in local multiplayer.", _dim);
                 return;
             }
 
-            // Player picker.
             var selected = profiles.FirstOrDefault(p => p.Id == _statsProfileId) ?? profiles[0];
-            for (int i = 0; i < profiles.Count; i += 4)
-            {
-                GUILayout.BeginHorizontal();
-                foreach (var p in profiles.Skip(i).Take(4))
-                    if (GUILayout.Button(p.Name, p == selected ? _tabOn : _tabOff)) _statsProfileId = p.Id;
-                GUILayout.EndHorizontal();
-            }
-            GUILayout.Space(8);
 
             // All time, or tonight (same evening as the Tonight tab: this PC only, new after hours without racing).
             bool tonight = _statsTonight;
             var st = tonight ? Session.StatsOrNull(selected.Id) ?? new PlayerStats() : selected.Stats;
             GUILayout.BeginVertical(_row);
             GUILayout.BeginHorizontal();
-            GUILayout.Label(selected.Name, _title);
+            // The player's name is the picker: click it for a list of everyone.
+            if (GUILayout.Button(selected.Name + "  \u25BC", _picker)) { _pickerOpen = !_pickerOpen; Redraw(); }
+            if (Event.current.type == EventType.Repaint) _pickerRect = GUILayoutUtility.GetLastRect();
             GUILayout.FlexibleSpace();
             GUILayout.Label(tonight ? $"{st.Races} races tonight" : $"{st.Races} races", _gold);
             GUILayout.Space(16);
-            if (GUILayout.Button("All time", !tonight ? _tabOn : _tabOff, GUILayout.Width(130))) _statsTonight = false;
-            if (GUILayout.Button("Tonight", tonight ? _tabOn : _tabOff, GUILayout.Width(130))) _statsTonight = true;
+            if (GUILayout.Button("All time", !tonight ? _tabOn : _tabOff, GUILayout.Width(130))) { _statsTonight = false; Redraw(); }
+            if (GUILayout.Button("Tonight", tonight ? _tabOn : _tabOff, GUILayout.Width(130))) { _statsTonight = true; Redraw(); }
             GUILayout.EndHorizontal();
             // The headline: all time, how many maps this player has the #1 time on;
             // tonight, on how many of tonight's maps they have the fastest time of the evening.
@@ -900,9 +926,17 @@ namespace CouchParty
             var driving = new (string, object)[] { ("Distance driven", Km(st.DistanceMeters)), ("Distance per race", Km(st.Races > 0 ? st.DistanceMeters / st.Races : 0)), ("Top speed", $"{st.TopSpeedKmh:0} km/h"), ("Air time", AirTime(st.AirSeconds)), ("Longest jump", $"{st.LongestJumpSeconds:0.0} s") };
             var bumper = new (string, object)[] { ("Car-to-car hits", st.CarToCarHits), ("Rammed others", st.RammedOthers), ("Got rammed", st.GotRammed), ("Knockouts", st.Knockouts), ("Wheels knocked off", st.WheelsKnockedOff) };
             var cats = new (string, object)[] { ("Cats petted", st.CatsPetted), ("Crashes caused by cats", st.CatCrashes) };
-            var stunts = new (string, object)[] { ("Big jumps (1 s+)", st.BigJumps), ("Front flips", st.FrontFlips), ("Backflips", st.Backflips), ("Most flips in one jump", st.MostFlipsInJump > 0 ? (object)st.MostFlipsInJump : NoValue), ("Barrel rolls", st.BarrelRolls), ("Most rolls in one jump", st.MostRollsInJump > 0 ? (object)st.MostRollsInJump : NoValue), ("180s", st.Spins180), ("360s", st.Spins360), ("720s", st.Spins720), ("1080s", st.Spins1080), ("Biggest spin", st.BiggestSpin > 0 ? $"{st.BiggestSpin}°" : NoValue) };
+            var stunts = new (string, object)[] { ("Big jumps (2 s+)", st.BigJumps), ("Front flips", st.FrontFlips), ("Backflips", st.Backflips), ("Most flips in one jump", st.MostFlipsInJump > 0 ? (object)st.MostFlipsInJump : NoValue), ("Barrel rolls", st.BarrelRolls), ("Most rolls in one jump", st.MostRollsInJump > 0 ? (object)st.MostRollsInJump : NoValue), ("180s", st.Spins180), ("360s", st.Spins360), ("720s", st.Spins720), ("1080s", st.Spins1080), ("Biggest spin", st.BiggestSpin > 0 ? $"{st.BiggestSpin}°" : NoValue) };
 
-            var columns = Wide
+            var columns = Columns >= 4
+                ? new[]
+                {
+                    new[] { ("Racing", racing), ("Finishes", finishes) },
+                    new[] { ("Records", records), ("Carnage", carnage), ("Cats", cats) },
+                    new[] { ("Driving", driving), ("Bumper cars", bumper) },
+                    new[] { ("Stunts", stunts) },
+                }
+                : Columns == 3
                 ? new[]
                 {
                     new[] { ("Racing", racing), ("Finishes", finishes), ("Records", records) },
@@ -914,7 +948,8 @@ namespace CouchParty
                     new[] { ("Racing", racing), ("Finishes", finishes), ("Records", records), ("Carnage", carnage) },
                     new[] { ("Bumper cars", bumper), ("Cats", cats), ("Driving", driving), ("Stunts", stunts) },
                 };
-            float col = (_windowRect.width - 70 - (columns.Length - 1) * 20) / columns.Length;
+            // Room for the window's padding, the box around the stats and a scrollbar, so nothing spills sideways.
+            float col = (_windowRect.width - 120 - (columns.Length - 1) * 20) / columns.Length;
             GUILayout.BeginHorizontal();
             for (int c = 0; c < columns.Length; c++)
             {
@@ -922,7 +957,7 @@ namespace CouchParty
                 GUILayout.BeginVertical(GUILayout.Width(col));
                 for (int g = 0; g < columns[c].Length; g++)
                 {
-                    if (g > 0) GUILayout.Space(18); // a clear gap before each group header
+                    if (g > 0) GUILayout.Space(12); // a clear gap before each group header
                     StatGroup(columns[c][g].Item1);
                     foreach (var (label, value) in columns[c][g].Item2) StatRow(label, value);
                 }
@@ -930,23 +965,41 @@ namespace CouchParty
             }
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
+            // No reset button here: one player is reset on the Profiles tab, everyone with Start fresh (Backups).
 
-            // Resetting is about lifetime stats; tonight has "Start a new evening" on the Tonight tab.
-            if (tonight) return;
-            GUILayout.Space(10);
-            if (_confirmResetStats)
+            if (_pickerOpen) DrawPlayerPicker(profiles, selected, tonight);
+        }
+
+        /// <summary>
+        /// The list under the player's name, drawn on top of the stats (which are only text, so clicks on the list
+        /// can't reach anything underneath). Picking a name switches player; clicking anywhere else closes it.
+        /// </summary>
+        private void DrawPlayerPicker(List<Profile> profiles, Profile selected, bool tonight)
+        {
+            const float itemH = 44f, pad = 6f, width = 360f;
+            var list = new Rect(_pickerRect.x, _pickerRect.yMax + 6f, width, profiles.Count * (itemH + 4f) + 2 * pad - 4f);
+            var e = Event.current;
+            if (e.type == EventType.MouseDown && !list.Contains(e.mousePosition) && !_pickerRect.Contains(e.mousePosition))
             {
-                GUILayout.BeginHorizontal();
-                GUILayout.Label("Reset everyone's stats? (Map records are kept.)", _label);
-                if (GUILayout.Button("Yes, reset", _button, GUILayout.Width(150)))
-                {
-                    Store.ResetAllStats();
-                    _confirmResetStats = false;
-                }
-                if (GUILayout.Button("No", _button, GUILayout.Width(60))) _confirmResetStats = false;
-                GUILayout.EndHorizontal();
+                _pickerOpen = false;
+                return;
             }
-            else if (GUILayout.Button("Reset stats", _button, GUILayout.Width(170))) _confirmResetStats = true;
+            DrawOutline(list, 3f);
+            GUI.DrawTexture(list, _panelTex);
+            for (int i = 0; i < profiles.Count; i++)
+            {
+                var p = profiles[i];
+                var r = new Rect(list.x + pad, list.y + pad + i * (itemH + 4f), list.width - 2 * pad, itemH);
+                if (GUI.Button(r, p.Name, p == selected ? _pickItemOn : _pickItem))
+                {
+                    _statsProfileId = p.Id;
+                    _pickerOpen = false;
+                    Redraw();
+                }
+                int races = tonight ? (Session.StatsOrNull(p.Id)?.Races ?? 0) : p.Stats.Races;
+                string text = races > 0 ? $"{races} race{(races == 1 ? "" : "s")}{(tonight ? " tonight" : "")}" : tonight ? "no races tonight" : "no races yet";
+                GUI.Label(new Rect(r.x, r.y, r.width - 16f, r.height), text, _pickRaces);
+            }
         }
 
         private void StatGroup(string title)
@@ -987,10 +1040,10 @@ namespace CouchParty
 
             var categories = new List<(string title, string about, Func<Profile, double> value, Func<double, string> format)>
             {
-                ("Record hoarder", "Holds the #1 time on the most maps right now", p => RecordsHeld(p), v => $"{v:0} maps"),
-                ("Most wins", "Most races won", p => p.Stats.Wins, v => $"{v:0} wins"),
-                ("Record breaker", "Broke an existing map record most often", p => p.Stats.RecordsBroken, v => $"{v:0} records"),
-                ("PB machine", "Beat their own best time most often", p => p.Stats.PersonalBests, v => $"{v:0} PBs"),
+                ("Record hoarder", "Holds the #1 time on the most maps right now", p => RecordsHeld(p), v => Count(v, "map")),
+                ("Most wins", "Most races won", p => p.Stats.Wins, v => Count(v, "win")),
+                ("Record breaker", "Broke an existing map record most often", p => p.Stats.RecordsBroken, v => Count(v, "record")),
+                ("PB machine", "Beat their own best time most often", p => p.Stats.PersonalBests, v => Count(v, "PB")),
                 ("Speed demon", "Highest top speed ever", p => p.Stats.TopSpeedKmh, v => $"{v:0} km/h"),
                 ("Road tripper", "Longest total distance driven", p => p.Stats.DistanceMeters, v => Km(v)),
                 ("Frequent flyer", "Most total time in the air", p => p.Stats.AirSeconds, v => AirTime(v)),
@@ -1000,47 +1053,50 @@ namespace CouchParty
                 ("Corkscrew", "Most barrel rolls landed (without crashing)", p => p.Stats.BarrelRolls, v => Count(v, "roll")),
                 ("Rotisserie", "Most barrel rolls in one jump (landed)", p => p.Stats.MostRollsInJump, v => Count(v, "roll")),
                 ("Spin doctor", "Biggest flat spin landed, in exact degrees", p => p.Stats.BiggestSpin, v => $"{v:0}°"),
-                ("Moonwalker", "Most finishes crossing the line backwards", p => p.Stats.ReverseFinishes, v => $"{v:0} reverse finishes"),
-                ("Crash king", "Most hard crashes (actually hit something)", p => p.Stats.HardCrashes, v => $"{v:0} crashes"),
-                ("Ejector seat", "Ejected the most", p => p.Stats.Ejects, v => $"{v:0} ejects"),
-                ("Snail", "Timed out the most (too slow for 10 seconds)", p => p.Stats.Timeouts, v => $"{v:0} timeouts"),
-                ("Wheel donor", "Lost the most wheels", p => p.Stats.WheelsLost, v => $"{v:0} wheels"),
-                ("Limping home", "Most finishes with wheels missing", p => p.Stats.DamagedFinishes, v => $"{v:0} finishes"),
-                ("No-wheel hero", "Most finishes with no wheels left", p => p.Stats.ZeroWheelFinishes, v => $"{v:0} finishes"),
-                ("Stuntman", "Most finishes on foot, after ejecting from the car", p => p.Stats.OnFootFinishes, v => $"{v:0} on foot finishes"),
-                ("Shortcut hunter", "Crossed the finish but missed checkpoints most often", p => p.Stats.ShortcutFinishes, v => $"{v:0} shortcut finishes"),
-                ("Bumper car champ", "Rammed other racers the most", p => p.Stats.RammedOthers, v => $"{v:0} rams"),
-                ("Demolition derby", "Most knockouts: rammed another racer who then crashed soon after", p => p.Stats.Knockouts, v => $"{v:0} knockouts"),
-                ("Wheel snatcher", "Knocked the most wheels off other racers", p => p.Stats.WheelsKnockedOff, v => $"{v:0} wheels"),
-                ("Punching bag", "Got rammed by other racers the most", p => p.Stats.GotRammed, v => $"{v:0} times"),
-                ("Cat lover", "Petted the most walking cats (with their car)", p => p.Stats.CatsPetted, v => $"{v:0} cats"),
-                ("Cat's revenge", "Crashed the most after hitting a cat", p => p.Stats.CatCrashes, v => $"{v:0} crashes"),
+                ("Moonwalker", "Most finishes crossing the line backwards", p => p.Stats.ReverseFinishes, v => Count(v, "reverse finish", "reverse finishes")),
+                ("Crash king", "Most hard crashes (actually hit something)", p => p.Stats.HardCrashes, v => Count(v, "crash", "crashes")),
+                ("Ejector seat", "Ejected the most", p => p.Stats.Ejects, v => Count(v, "eject")),
+                ("Snail", "Timed out the most (too slow for 10 seconds)", p => p.Stats.Timeouts, v => Count(v, "timeout")),
+                ("Wheel donor", "Lost the most wheels", p => p.Stats.WheelsLost, v => Count(v, "wheel")),
+                ("Limping home", "Most finishes with wheels missing", p => p.Stats.DamagedFinishes, v => Count(v, "finish", "finishes")),
+                ("No-wheel hero", "Most finishes with no wheels left", p => p.Stats.ZeroWheelFinishes, v => Count(v, "finish", "finishes")),
+                ("Stuntman", "Most finishes on foot, after ejecting from the car", p => p.Stats.OnFootFinishes, v => Count(v, "on foot finish", "on foot finishes")),
+                ("Shortcut hunter", "Crossed the finish but missed checkpoints most often", p => p.Stats.ShortcutFinishes, v => Count(v, "shortcut finish", "shortcut finishes")),
+                ("Bumper car champ", "Rammed other racers the most", p => p.Stats.RammedOthers, v => Count(v, "ram")),
+                ("Demolition derby", "Most knockouts: rammed another racer who then crashed soon after", p => p.Stats.Knockouts, v => Count(v, "knockout")),
+                ("Wheel snatcher", "Knocked the most wheels off other racers", p => p.Stats.WheelsKnockedOff, v => Count(v, "wheel")),
+                ("Punching bag", "Got rammed by other racers the most", p => p.Stats.GotRammed, v => Count(v, "time")),
+                ("Cat lover", "Petted the most walking cats (with their car)", p => p.Stats.CatsPetted, v => Count(v, "cat")),
+                ("Cat's revenge", "Crashed the most after hitting a cat", p => p.Stats.CatCrashes, v => Count(v, "crash", "crashes")),
             };
 
-            int perRow = Wide ? 3 : 2;
-            float col = (_windowRect.width - 70 - (perRow - 1) * 10) / perRow;
+            int perRow = Columns;
+            float col = (_windowRect.width - 95 - (perRow - 1) * 10) / perRow; // leaves room for the scrollbar
             for (int i = 0; i < categories.Count; i += perRow)
             {
                 GUILayout.BeginHorizontal();
                 for (int j = i; j < Mathf.Min(i + perRow, categories.Count); j++)
                 {
                     var c = categories[j];
-                    GUILayout.BeginVertical(_row, GUILayout.Width(col));
+                    // Every card the same size: a two-line description and three place rows, filled or not.
+                    GUILayout.BeginVertical(_row, GUILayout.Width(col), GUILayout.MinHeight(FameCardHeight));
                     GUILayout.Label(c.title, _groupHeader);
-                    GUILayout.Label(c.about, _small);
+                    GUILayout.Label(c.about, _small, GUILayout.Height(FameAboutHeight));
                     var top = profiles.Select(p => (p, v: c.value(p))).Where(x => x.v > 0)
                         .OrderByDescending(x => x.v).Take(3).ToList();
-                    if (top.Count == 0) GUILayout.Label("nobody yet", _dim);
-                    for (int k = 0; k < top.Count; k++)
+                    for (int k = 0; k < 3; k++)
                     {
-                        GUILayout.BeginHorizontal();
-                        GUILayout.Label(Medal(k), _medals[k], GUILayout.Width(44));
-                        GUILayout.Label(top[k].p.Name, _medals[k]);
-                        GUILayout.FlexibleSpace();
-                        GUILayout.Label(c.format(top[k].v), _label);
+                        GUILayout.BeginHorizontal(GUILayout.Height(FameRowHeight));
+                        if (k < top.Count)
+                        {
+                            GUILayout.Label(Medal(k), _medals[k], GUILayout.Width(44));
+                            GUILayout.Label(top[k].p.Name, _medals[k]);
+                            GUILayout.FlexibleSpace();
+                            GUILayout.Label(c.format(top[k].v), _label);
+                        }
+                        else if (k == 0) GUILayout.Label("nobody yet", _dim);
                         GUILayout.EndHorizontal();
                     }
-                    for (int k = top.Count; k < 3; k++) GUILayout.Label(" ", _label);
                     GUILayout.EndVertical();
                     if (j < Mathf.Min(i + perRow, categories.Count) - 1) GUILayout.Space(10);
                 }
@@ -1049,11 +1105,66 @@ namespace CouchParty
             }
         }
 
+        private const float FameAboutHeight = 44f; // two lines of the small font
+        private const float FameRowHeight = 31f;
+        private const float FameCardHeight = 196f;
+
         private static string Medal(int place) => place == 0 ? "1st" : place == 1 ? "2nd" : "3rd";
 
         // ---------------- Tonight tab ----------------
 
         private bool _confirmNewEvening;
+
+        /// <summary>Tonight's awards: who leads each silly category this evening. A card shows once someone has scored.</summary>
+        private static readonly (string title, Func<PlayerStats, double> value, Func<double, string> text)[] TonightAwards =
+        {
+            ("Demolition derby", s => s.Knockouts, v => Count(v, "knockout")),
+            ("Punching bag", s => s.GotRammed, v => "got rammed " + Count(v, "time")),
+            ("Crash king", s => s.HardCrashes, v => Count(v, "hard crash", "hard crashes")),
+            ("Cat lover", s => s.CatsPetted, v => "petted " + Count(v, "cat")),
+            ("Moon landing", s => s.LongestJumpSeconds, v => $"{v:0.0} s jump"),
+            ("Spin doctor", s => s.BiggestSpin, v => $"{v:0}\u00b0 spin"),
+            ("Stuntman", s => s.OnFootFinishes, v => Count(v, "on foot finish", "on foot finishes")),
+        };
+
+        private void DrawTonightAwards()
+        {
+            GUILayout.Label("Tonight's awards", _groupHeader);
+            var stats = Session.Current.Stats;
+            var cards = new List<(string title, string who, string text)>();
+            foreach (var a in TonightAwards)
+            {
+                double best = stats.Values.Select(a.value).DefaultIfEmpty(0).Max();
+                if (best <= 0) continue;
+                // Ties: everyone on the top value.
+                var names = stats.Where(kv => a.value(kv.Value) == best).Select(kv => Session.NameOf(kv.Key)).OrderBy(n => n);
+                cards.Add((a.title, string.Join(" & ", names), a.text(best)));
+            }
+            if (cards.Count == 0)
+            {
+                GUILayout.Label("Nobody has earned one yet tonight.", _dim);
+                return;
+            }
+
+            int perRow = Columns >= 4 ? TonightAwards.Length : 4;
+            float cardW = (_windowRect.width - 70 - (perRow - 1) * 8) / perRow;
+            for (int i = 0; i < cards.Count; i += perRow)
+            {
+                if (i > 0) GUILayout.Space(8);
+                GUILayout.BeginHorizontal();
+                for (int j = i; j < Math.Min(i + perRow, cards.Count); j++)
+                {
+                    if (j > i) GUILayout.Space(8);
+                    GUILayout.BeginVertical(_row, GUILayout.Width(cardW));
+                    GUILayout.Label(cards[j].title, _gold);
+                    GUILayout.Label(cards[j].who, _header);
+                    GUILayout.Label(cards[j].text, _small);
+                    GUILayout.EndVertical();
+                }
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+            }
+        }
 
         private void DrawTonightTab()
         {
@@ -1077,6 +1188,9 @@ namespace CouchParty
                                s.Stats.Crashes.ToString(), s.Stats.Hits.ToString(), s.Stats.Races.ToString(), i == 0 && s.BestTimes > 0);
                 }
             }
+            GUILayout.Space(12);
+
+            DrawTonightAwards();
             GUILayout.Space(12);
 
             // Every map tonight, newest first
@@ -1134,8 +1248,8 @@ namespace CouchParty
             }
 
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Best per player", !_lbAllRuns ? _tabOn : _tabOff)) _lbAllRuns = false;
-            if (GUILayout.Button("All runs", _lbAllRuns ? _tabOn : _tabOff)) _lbAllRuns = true;
+            if (GUILayout.Button("Best per player", !_lbAllRuns ? _tabOn : _tabOff)) { _lbAllRuns = false; Redraw(); }
+            if (GUILayout.Button("All runs", _lbAllRuns ? _tabOn : _tabOff)) { _lbAllRuns = true; Redraw(); }
             GUILayout.EndHorizontal();
             GUILayout.Space(6);
 
@@ -1148,7 +1262,10 @@ namespace CouchParty
                 GUILayout.BeginVertical(_row);
                 GUILayout.BeginHorizontal();
                 if (GUILayout.Button(expanded ? "-" : "+", _button, GUILayout.Width(44)))
+                {
                     _expandedLevel = expanded ? null : kv.Key;
+                    Redraw();
+                }
                 GUILayout.Label(rec.LevelName ?? "Unknown map", _header);
                 GUILayout.FlexibleSpace();
                 if (ranked.Count > 0)
@@ -1170,6 +1287,7 @@ namespace CouchParty
                             Store.Leaderboard.ClearLevel(kv.Key);
                             Store.SaveLeaderboard();
                             _confirmClearLevel = null;
+                            Redraw();
                         }
                         if (GUILayout.Button("No", _button, GUILayout.Width(60))) _confirmClearLevel = null;
                     }
@@ -1191,7 +1309,7 @@ namespace CouchParty
                 {
                     rec.RemovePlayer(b.ProfileId);
                     Store.SaveLeaderboard();
-                    break;
+                    Redraw();
                 }
             }
         }
@@ -1207,7 +1325,7 @@ namespace CouchParty
                 {
                     rec.RemoveRun(r);
                     Store.SaveLeaderboard();
-                    break;
+                    Redraw();
                 }
             }
         }
@@ -1670,6 +1788,7 @@ namespace CouchParty
             _statsLink = new GUIStyle(_dim) { fontSize = 18, fontStyle = FontStyle.Bold, margin = new RectOffset(10, 4, 4, 4) };
             _statsLinkHover = new GUIStyle(_statsLink);
             _statsLinkHover.normal.textColor = TimeYellow;
+            _pickRaces = new GUIStyle(_small) { wordWrap = false, alignment = TextAnchor.MiddleRight, fontStyle = FontStyle.Bold };
 
             // Buttons like the game's: muted red, orange when hovered/selected.
             _button = new GUIStyle(GUI.skin.button)
@@ -1702,6 +1821,14 @@ namespace CouchParty
             _btnReset = Colored(ButtonReset);
             _btnDelete = Colored(ButtonDelete);
             _btnRestore = Colored(ButtonRestore);
+            // Stats tab: the player's name as a dropdown, and its list.
+            _picker = new GUIStyle(_button) { fontSize = 30, alignment = TextAnchor.MiddleLeft, padding = new RectOffset(12, 16, 2, 2) };
+            _picker.normal.background = _picker.focused.background = Tex(new Color(0f, 0f, 0f, 0.25f));
+            _picker.hover.background = Tex(new Color(0f, 0f, 0f, 0.4f));
+            _picker.active.background = Tex(new Color(0f, 0f, 0f, 0.5f));
+            _pickItem = new GUIStyle(_button) { fontSize = 22, alignment = TextAnchor.MiddleLeft, padding = new RectOffset(16, 16, 4, 4) };
+            _pickItemOn = new GUIStyle(_pickItem);
+            _pickItemOn.normal.background = _pickItemOn.hover.background = _pickItemOn.focused.background = orange;
 
             _field = new GUIStyle(GUI.skin.textField) { fontSize = 22, padding = new RectOffset(8, 8, 6, 6), border = new RectOffset(0, 0, 0, 0) };
             var fieldTex = Tex(new Color(0.2f, 0.02f, 0.02f, 1f));

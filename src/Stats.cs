@@ -95,6 +95,7 @@ namespace CouchParty
             public string Detail;   // for the debug log: air time and degrees around each axis
             public float Seconds;   // time in the air (for the longest jump)
             public bool BigJump;    // 1 s or more in the air
+            public bool AtFinish;   // "landed" by crossing the finish mid-air: counts only for a valid finish
             public bool HasTricks => Front + Back + Rolls + Spin > 0;
             public float LandedAt;
             public string Name;
@@ -102,11 +103,13 @@ namespace CouchParty
 
         /// <summary>After landing, wait this long before speed counts towards top speed.</summary>
         private const float TopSpeedLandingGrace = 1f;
+        /// <summary>Wheels that must touch the track for a speed to count as driving.</summary>
+        private const int TopSpeedMinWheels = 2;
 
         /// <summary>Shorter hops than this aren't counted as air time.</summary>
         private const float MinJumpSeconds = 0.3f;
         /// <summary>Jumps at least this long count as big jumps (landed like a stunt).</summary>
-        private const float BigJumpSeconds = 1f;
+        private const float BigJumpSeconds = 2f; // 1 s made every few seconds a "big jump" on normal maps (logs, 2026-11-24)
 
         /// <summary>Gentler touches than this (relative speed, m/s) don't count as a bump.</summary>
         private const float MinBumpSpeed = 3f;
@@ -146,11 +149,11 @@ namespace CouchParty
         private static void AddMoment(int priority, string text, float at = -1f)
         {
             if (Moments.Any(m => m.text == text)) return;
-            Moments.Add((priority, at >= 0 ? at : Time.unscaledTime, text));
+            Moments.Add((priority, at >= 0 ? at : RaceTime, text));
         }
 
         private static float At(int slot, Func<Live, float> when) =>
-            Slots.TryGetValue(slot, out var live) && when(live) > 0 ? when(live) : Time.unscaledTime;
+            Slots.TryGetValue(slot, out var live) && when(live) > 0 ? when(live) : RaceTime;
         private static readonly Dictionary<int, float> PairLastBump = new Dictionary<int, float>();
         /// <summary>Last hit per (player, cat), so one hit counts once.</summary>
         private static readonly Dictionary<(int, int), float> CatLastHit = new Dictionary<(int, int), float>();
@@ -176,7 +179,7 @@ namespace CouchParty
             PairLastBump.Clear();
             OutBeforeStart.Clear();
             Moments.Clear();
-            _roundStart = Time.unscaledTime;
+            _roundStart = RaceTime;
             CatLastHit.Clear();
             _gm = null;
             _nextRefresh = 0;
@@ -193,9 +196,11 @@ namespace CouchParty
         /// <summary>Race saved: add live stats plus the result to each profiled player.</summary>
         public static void CommitRace(RaceSummary summary)
         {
-            if (summary == null) { Slots.Clear(); _tracking = false; return; }
+            // Not saved (e.g. the map couldn't be worked out): the crashes, hits, stunts etc. still count.
+            if (summary == null) { CommitLiveOnly(); _tracking = false; return; }
 
             SettleKnockouts(summary);
+            SettleFinishStunts(summary);
             FillHighlights(summary);
 
             var winner = summary.Lines.FirstOrDefault(l => l.Finished);
@@ -232,6 +237,16 @@ namespace CouchParty
                         Plugin.Debug($"Player {live.Slot + 1} finished on {live.WheelsAtFinish} wheel(s)!");
                     AddLive(live, profile.MyStats, Session.StatsFor(profile));
                 }
+                changed = true;
+            }
+            // Someone tracked during the race but missing from the results: keep what they did anyway.
+            foreach (var kv in Slots)
+            {
+                if (summary.Lines.Any(l => l.Slot == kv.Key)) continue;
+                var profile = Store.GetSlotProfile(kv.Key);
+                if (profile == null) continue;
+                profile.MyStats.Updated = DateTime.UtcNow;
+                AddLive(kv.Value, profile.MyStats, Session.StatsFor(profile));
                 changed = true;
             }
             Slots.Clear();
@@ -286,7 +301,7 @@ namespace CouchParty
 
             // Fill up with the race's showpieces: the biggest jump and the most cats.
             var jump = summary.Highlights.OrderByDescending(h => h.LongestJump).FirstOrDefault();
-            if (jump != null && jump.LongestJump >= 1f) AddMoment(3, $"{jump.Name} flew {jump.LongestJump:0.0} s", At(jump.Slot, l => l.JumpAt));
+            if (jump != null && jump.LongestJump >= BigJumpSeconds) AddMoment(3, $"{jump.Name} flew {jump.LongestJump:0.0} s", At(jump.Slot, l => l.JumpAt));
             var cats = summary.Highlights.OrderByDescending(h => h.Cats).FirstOrDefault();
             if (cats != null && cats.Cats >= 2) AddMoment(3, $"{cats.Name} petted {cats.Cats} cats", At(cats.Slot, l => l.CatAt));
             else if (cats != null && cats.Cats == 1) AddMoment(4, $"{cats.Name} petted a cat", At(cats.Slot, l => l.CatAt));
@@ -312,6 +327,7 @@ namespace CouchParty
         private static void CommitLiveOnly()
         {
             SettleKnockouts(null);
+            SettleFinishStunts(null);
             bool changed = false;
             foreach (var kv in Slots)
             {
@@ -387,14 +403,27 @@ namespace CouchParty
 
         // ---------------- Per-frame tracking ----------------
 
+        /// <summary>
+        /// Game time, not real time: it stops while the game is paused (seen: pausing mid-air gave a "164 s jump").
+        /// Every race timing (air time, knockout marks, stunt landings, cats, moments) uses it.
+        /// </summary>
+        private static float RaceTime => Time.time;
+        private static bool _paused;
+
         public static void Tick()
         {
             if (!_tracking) return;
+            bool paused = Time.timeScale == 0f;
+            if (paused != _paused)
+            {
+                _paused = paused;
+                Plugin.Debug(paused ? "Game paused: the race clock stops." : "Game resumed.");
+            }
             try
             {
-                if (_gm == null || Time.unscaledTime >= _nextRefresh)
+                if (_gm == null || RaceTime >= _nextRefresh)
                 {
-                    _nextRefresh = Time.unscaledTime + 1f;
+                    _nextRefresh = RaceTime + 1f;
                     if (_gm == null) _gm = UnityEngine.Object.FindObjectOfType<GameMaster>();
                     if (GroundFloor.Count == 0 && _gm != null)
                     {
@@ -502,7 +531,7 @@ namespace CouchParty
 
             // Both cars report the same hit: count it once per pair per cooldown.
             int pair = Mathf.Min(slot, other) * 10 + Mathf.Max(slot, other);
-            float now = Time.unscaledTime;
+            float now = RaceTime;
             if (PairLastBump.TryGetValue(pair, out float last) && now - last < BumpCooldown) return;
             PairLastBump[pair] = now;
 
@@ -538,7 +567,7 @@ namespace CouchParty
             if (collision.relativeVelocity.magnitude < 1f) return; // resting against it doesn't count
 
             var key = (slot, cat.GetInstanceID());
-            float now = Time.unscaledTime;
+            float now = RaceTime;
             if (CatLastHit.TryGetValue(key, out float last) && now - last < CatHitCooldown) return;
             CatLastHit[key] = now;
 
@@ -555,9 +584,9 @@ namespace CouchParty
             if (!_tracking || collision == null || !Slots.TryGetValue(slot, out var live)) return;
             var otherBody = collision.rigidbody != null ? collision.rigidbody : collision.collider != null ? collision.collider.attachedRigidbody : null;
             if (otherBody != null && BodyToSlot.ContainsKey(otherBody)) return; // another racer (or own parts) isn't the ground
-            live.LastBodyContact = Time.unscaledTime;
-            if (collision.collider != null && GroundFloor.Contains(collision.collider)) live.LastGroundFloorContact = Time.unscaledTime;
-            else live.LastTrackContact = Time.unscaledTime;
+            live.LastBodyContact = RaceTime;
+            if (collision.collider != null && GroundFloor.Contains(collision.collider)) live.LastGroundFloorContact = RaceTime;
+            else live.LastTrackContact = RaceTime;
         }
 
         /// <summary>
@@ -566,7 +595,7 @@ namespace CouchParty
         /// </summary>
         private static bool IsOnTrack(Live live)
         {
-            if (Time.unscaledTime - live.LastTrackContact < 0.25f) return true;
+            if (RaceTime - live.LastTrackContact < 0.25f) return true;
             foreach (var w in live.CustomWheels)
             {
                 if (!Access.Get(w, "isGrounded", false)) continue;
@@ -576,9 +605,22 @@ namespace CouchParty
             return false;
         }
 
+        /// <summary>Wheels touching the track right now (not the map's ground floor).</summary>
+        private static int WheelsOnTrack(Live live)
+        {
+            int n = 0;
+            foreach (var w in live.CustomWheels)
+            {
+                if (!Access.Get(w, "isGrounded", false)) continue;
+                var hit = Access.Get<RaycastHit>(w, "hit");
+                if (hit.collider == null || !GroundFloor.Contains(hit.collider)) n++;
+            }
+            return n;
+        }
+
         private static bool IsOnGroundFloor(Live live)
         {
-            if (Time.unscaledTime - live.LastGroundFloorContact < 0.25f) return true;
+            if (RaceTime - live.LastGroundFloorContact < 0.25f) return true;
             foreach (var w in live.CustomWheels)
             {
                 if (!Access.Get(w, "isGrounded", false)) continue;
@@ -590,7 +632,7 @@ namespace CouchParty
 
         private static bool IsGrounded(Live live)
         {
-            if (Time.unscaledTime - live.LastBodyContact < 0.25f) return true;
+            if (RaceTime - live.LastBodyContact < 0.25f) return true;
             foreach (var w in live.CustomWheels)
                 if (Access.Get(w, "isGrounded", false)) return true;
             return false;
@@ -732,9 +774,36 @@ namespace CouchParty
             var stunt = new Stunt { Front = pitch > 0 ? flips : 0, Back = pitch < 0 ? flips : 0, Rolls = rolls, Spin = Mathf.Min(spin, MaxSpinTrick), SpinDegrees = spin > 0 ? Mathf.RoundToInt(Mathf.Abs(yaw)) : 0, LandedAt = now };
             stunt.Seconds = seconds;
             stunt.BigJump = big;
+            stunt.AtFinish = finished && !onTrack;
             stunt.Name = stunt.HasTricks ? StuntName(stunt.Front, stunt.Back, rolls, spin) : big ? "big jump" : $"{seconds:0.0} s jump";
             stunt.Detail = $"{seconds:0.0} s in the air; flip {pitch:+0;-0;0}°, roll {roll:+0;-0;0}°, spin {yaw:+0;-0;0}°";
             live.Pending.Add(stunt); // each landing gets its own timer; a crash cancels all of them
+            if (stunt.AtFinish && (stunt.HasTricks || stunt.BigJump))
+                Plugin.Debug($"Player {live.Slot + 1} crossed the finish mid-air with a {stunt.Name}: counts if the finish is valid (every checkpoint).");
+        }
+
+        /// <summary>
+        /// Race over: stunts "landed" by crossing the finish mid-air count only for a valid finish. Falling off the
+        /// map through the finish line (a shortcut finish) isn't landing anything. Without results, they don't count.
+        /// </summary>
+        private static void SettleFinishStunts(RaceSummary summary)
+        {
+            foreach (var live in Slots.Values)
+            {
+                var line = summary?.Lines.FirstOrDefault(l => l.Slot == live.Slot);
+                for (int i = live.Pending.Count - 1; i >= 0; i--)
+                {
+                    var s = live.Pending[i];
+                    if (!s.AtFinish) continue;
+                    if (line != null && line.Finished) CreditStunt(live, i);
+                    else
+                    {
+                        live.Pending.RemoveAt(i);
+                        if (s.HasTricks || s.BigJump)
+                            Plugin.Debug($"Player {live.Slot + 1}'s {s.Name} crossed the finish mid-air, but the finish wasn't valid (missed checkpoints): doesn't count.");
+                    }
+                }
+            }
         }
 
         private static string StuntName(int front, int back, int rolls, int spin)
@@ -782,7 +851,7 @@ namespace CouchParty
         private static string SinceRammed(Live live)
         {
             if (live.LastHitBy < 0) return "";
-            float ago = Time.unscaledTime - live.LastHitTime;
+            float ago = RaceTime - live.LastHitTime;
             return $" Last rammed by Player {live.LastHitBy + 1} {ago:0.0} s ago ({(live.KoArmed ? "still marked: counts for them" : "mark cleared: doesn't count")}).";
         }
 
@@ -827,8 +896,11 @@ namespace CouchParty
             bool finished = Access.Get(live.Player, "actuallyFinished", false);
 
             // Crash: the character goes from alive to dead.
-            float now = Time.unscaledTime;
+            float now = RaceTime;
             bool dead = Access.Get(live.Character, "isdead", false);
+            // Out before this frame (ejected earlier): only then is crossing the line an on foot finish. A crash in
+            // the very frame they cross is just a finish (the game counts it as one).
+            bool outBefore = live.WasDead;
             if (dead && !live.WasDead && !finished)
             {
                 // A hard crash, an eject or a timeout (too slow): all end the race early, all count as a crash.
@@ -899,9 +971,13 @@ namespace CouchParty
 
             if (live.Body != null) { live.LastRot = rot; live.HasLastRot = true; }
             // Landed a stunt a while ago (or crossed the finish) and still in one piece: it counts.
+            // One that "landed" by crossing the finish mid-air waits for the results (SettleFinishStunts).
             if (!dead)
                 for (int i = live.Pending.Count - 1; i >= 0; i--)
+                {
+                    if (live.Pending[i].AtFinish) continue;
                     if (finished || now - live.Pending[i].LandedAt >= StuntLandingGrace) CreditStunt(live, i);
+                }
             if (!live.AxesKnown && grounded && onTrack && !dead && !finished) DetectAxes(live);
 
             if (live.CatArmed && !finished)
@@ -929,7 +1005,8 @@ namespace CouchParty
             {
                 if (live.Wheels[w] == null) continue;
                 bool broken = Access.Get(live.Wheels[w], "isdead", false);
-                if (broken && !live.WheelDead[w] && !finished)
+                // Only while still racing: wheels that come off in a crash (how many depends on how violent it was) or after an eject don't count.
+                if (broken && !live.WheelDead[w] && !finished && !dead)
                 {
                     live.WheelsLost++;
                     live.WheelAt = now;
@@ -952,15 +1029,15 @@ namespace CouchParty
                     if (live.Wheels[w] != null && !live.WheelDead[w]) attached++;
                 live.WheelsAtFinish = attached;
                 live.FinishAt = now;
-                live.DeadAtFinish = dead;
+                live.DeadAtFinish = outBefore;
                 string direction = "";
-                if (!dead && live.AxesKnown && live.Body != null && prevVelocity.magnitude > 1f)
+                if (!outBefore && live.AxesKnown && live.Body != null && prevVelocity.magnitude > 1f)
                 {
                     float angle = Vector3.Angle(live.Body.transform.TransformDirection(live.Forward), prevVelocity);
                     live.ReverseAtFinish = angle >= ReverseAngle;
                     direction = $", moving {angle:0}° off the car's nose{(live.ReverseAtFinish ? " = BACKWARDS!" : "")}";
                 }
-                Plugin.Debug($"Player {live.Slot + 1} crossed the finish: {attached} wheel(s) on{(dead ? ", ON FOOT (ejected)" : "")}{direction}");
+                Plugin.Debug($"Player {live.Slot + 1} crossed the finish: {attached} wheel(s) on{(outBefore ? ", ON FOOT (ejected)" : "")}{direction}");
             }
             live.WasFinished = finished;
 
@@ -972,11 +1049,22 @@ namespace CouchParty
             {
                 float step = Vector3.Distance(pos, live.LastPos.Value);
                 if (step < MaxStepMeters) live.Distance += step;
-                // Top speed only on the track (not the map's ground floor), and not right after landing.
-                if (live.Body != null && onTrack && now - live.OnTrackSince >= TopSpeedLandingGrace)
+                // Top speed: driving on the track, with at least two wheels on it (not the map's ground floor, and not
+                // the car body scraping a wall or scenery on the way down), and not right after landing.
+                int wheelsOnTrack = WheelsOnTrack(live);
+                if (live.Body != null && wheelsOnTrack >= TopSpeedMinWheels && now - live.OnTrackSince >= TopSpeedLandingGrace)
                 {
-                    float speed = live.Body.velocity.magnitude * 3.6f;
-                    if (speed > live.TopSpeed) { live.TopSpeed = speed; live.TopSpeedAt = now; }
+                    var v = live.Body.velocity;
+                    float speed = v.magnitude * 3.6f;
+                    if (speed > live.TopSpeed)
+                    {
+                        // Logged from 150 km/h up, to check the fastest speeds are real driving, not a fall.
+                        if (speed >= 150f && speed - live.TopSpeed >= 5f)
+                            Plugin.Debug($"Player {live.Slot + 1} top speed {speed:0} km/h: {wheelsOnTrack} wheel(s) on the track, " +
+                                         $"falling {Mathf.Max(0f, -v.y) * 3.6f:0} km/h, {now - live.OnTrackSince:0.0} s since landing.");
+                        live.TopSpeed = speed;
+                        live.TopSpeedAt = now;
+                    }
                 }
             }
             live.LastPos = pos;

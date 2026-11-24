@@ -67,6 +67,9 @@ namespace CouchParty
 
         private static bool _dirty;
         private static float _dirtySince;
+        /// <summary>The last sync failed on the network or server: try again in a minute.</summary>
+        private static bool _retry;
+        private const float RetryAfter = 60f;
         private static bool _backedUpThisSession;
         private static bool _warnedOutdated;
 
@@ -219,11 +222,18 @@ namespace CouchParty
                     yield break;
                 }
                 LastError = "The server kept changing during sync. Try again in a moment.";
+                _retry = true;
             }
             finally
             {
                 Busy = false;
                 if (LastError != null) Plugin.Log.LogWarning("Sync failed: " + LastError);
+                if (_retry)
+                {
+                    _retry = false;
+                    _dirty = true;
+                    _dirtySince = Time.unscaledTime + RetryAfter - Debounce; // Tick waits Debounce after this
+                }
             }
         }
 
@@ -238,6 +248,7 @@ namespace CouchParty
 
         private static void Fail(UnityWebRequest req, string step)
         {
+            _retry = true;
             float waited = Time.unscaledTime - _stepStarted;
             LastError = req.responseCode == 401 || req.responseCode == 403
                 ? "The server didn't accept the key."
@@ -475,12 +486,16 @@ namespace CouchParty
                         if (!level.RacesByMachine.TryGetValue(kv.Key, out var n) || kv.Value > n) level.RacesByMachine[kv.Key] = kv.Value;
                 }
 
-                // Runs: everything from both sides (this season), once, minus removed ones; keep the fastest MaxRuns.
-                level.Runs = (la?.Runs ?? new List<RunRecord>()).Concat(lb?.Runs ?? new List<RunRecord>())
+                // Runs: everything from both sides (this season), once, minus removed ones; each player's fastest few.
+                level.Runs = LevelRecords.Trim((la?.Runs ?? new List<RunRecord>()).Concat(lb?.Runs ?? new List<RunRecord>())
                     .Where(r => r != null && !result.DeletedRunIds.Contains(r.Id) && r.Date.ToUniversalTime() >= season)
-                    .GroupBy(r => r.Id).Select(g => g.First())
-                    .OrderBy(r => r.Time).Take(LevelRecords.MaxRuns).ToList();
-                level.Best = (la ?? lb).Best ?? new Dictionary<string, BestTime>();
+                    .GroupBy(r => r.Id).Select(g => g.First()));
+                // Finishes per player: the higher count of the two sides (the same on whichever PC merges).
+                level.Best = new Dictionary<string, BestTime>();
+                foreach (var side in new[] { la?.Best, lb?.Best })
+                    foreach (var kv in side ?? new Dictionary<string, BestTime>())
+                        if (kv.Value != null && (!level.Best.TryGetValue(kv.Key, out var have) || kv.Value.Finishes > have.Finishes))
+                            level.Best[kv.Key] = kv.Value;
                 level.RebuildBest();
                 // Nothing left of a map from before the wipe: drop it.
                 if (level.Runs.Count == 0 && level.RacesPlayed == 0 && level.LastPlayed.ToUniversalTime() < season) continue;
