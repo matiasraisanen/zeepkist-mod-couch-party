@@ -28,6 +28,15 @@ namespace CouchParty
         /// <summary>Last "Start fresh" that wiped profiles (UTC). Profiles not changed since are dropped.</summary>
         public DateTime ProfilesWipedAt { get; set; }
 
+        /// <summary>PC names by machine id (the names of their sync keys).</summary>
+        public Dictionary<string, MachineName> MachineNames { get; set; } = new Dictionary<string, MachineName>();
+
+        /// <summary>Profiles joined into another one: old id -> kept id.</summary>
+        public Dictionary<string, string> JoinedProfiles { get; set; } = new Dictionary<string, string>();
+
+        /// <summary>Profiles deleted for good: id -> when (UTC).</summary>
+        public Dictionary<string, DateTime> DeletedProfiles { get; set; } = new Dictionary<string, DateTime>();
+
         private static readonly JsonSerializerSettings Settings = new JsonSerializerSettings
         {
             NullValueHandling = NullValueHandling.Ignore,
@@ -46,6 +55,8 @@ namespace CouchParty
     ///  - runs: all runs from both sides (by id), minus runs/maps someone removed on purpose
     ///  - stats: kept per machine; each machine's newest entry wins; totals are the sum
     ///  - profile name / Steam link / deleted: the newest change wins
+    ///  - the same Steam friend added as two profiles (on two PCs before they synced): joined into the older one
+    ///  - a player reset or deleted on one PC: their stats and times go everywhere, and don't come back
     /// </summary>
     internal static class Sync
     {
@@ -126,6 +137,13 @@ namespace CouchParty
                     {
                         _stepStarted = Time.unscaledTime;
                         yield return get.SendWebRequest();
+                        // The server says what this PC's key is called (older servers don't).
+                        string pcName = get.GetResponseHeader("X-CouchParty-PC");
+                        if (!string.IsNullOrEmpty(pcName))
+                        {
+                            try { Store.SetMachineName(Uri.UnescapeDataString(pcName)); }
+                            catch (Exception e) { Plugin.Log.LogWarning($"Sync: couldn't read this PC's name: {e.Message}"); }
+                        }
                         if (get.responseCode == 404) etag = "\"0\""; // nothing stored yet
                         else if (get.result != UnityWebRequest.Result.Success)
                         {
@@ -153,6 +171,8 @@ namespace CouchParty
                     }
                     var local = Store.ToSyncDoc();
                     var merged = remote == null ? local : Merge(local, remote);
+                    foreach (var kv in merged.JoinedProfiles.Where(kv => local.JoinedProfiles == null || !local.JoinedProfiles.ContainsKey(kv.Key)))
+                        Plugin.Log.LogInfo($"Sync: profile {kv.Key} was the same Steam friend as {kv.Value}; joined them.");
                     local.WrittenBy = merged.WrittenBy; // the version stamp alone isn't a change worth saving
                     string mergedJson = merged.ToJson();
                     if (mergedJson != local.ToJson()) Store.ApplySyncDoc(SyncDoc.FromJson(mergedJson));
@@ -236,7 +256,7 @@ namespace CouchParty
             // "Start fresh": the newest wipe wins and everything from before it is dropped, on both sides.
             var season = a.SeasonStart > b.SeasonStart ? a.SeasonStart : b.SeasonStart;
             var profilesWiped = a.ProfilesWipedAt > b.ProfilesWipedAt ? a.ProfilesWipedAt : b.ProfilesWipedAt;
-            return new SyncDoc
+            var result = new SyncDoc
             {
                 Profiles = MergeProfiles(a.Profiles.Where(p => p.Modified >= profilesWiped).ToList(),
                                          b.Profiles.Where(p => p.Modified >= profilesWiped).ToList(), season),
@@ -244,7 +264,138 @@ namespace CouchParty
                 SeasonStart = season,
                 ProfilesWipedAt = profilesWiped,
                 WrittenBy = IsNewer(a.WrittenBy, b.WrittenBy) ? a.WrittenBy : b.WrittenBy,
+                MachineNames = MergeMachineNames(a.MachineNames, b.MachineNames),
+                JoinedProfiles = MergeJoined(a.JoinedProfiles, b.JoinedProfiles),
+                DeletedProfiles = MergeDeleted(a.DeletedProfiles, b.DeletedProfiles),
             };
+            result.Profiles.RemoveAll(p => result.DeletedProfiles.ContainsKey(p.Id));
+            DropResetAndDeletedTimes(result); // before joining: each profile's own reset applies to its own times
+            JoinDuplicates(result);
+            DropResetAndDeletedTimes(result); // after: a reset of the kept profile covers the times it took over
+            return result;
+        }
+
+        private static Dictionary<string, DateTime> MergeDeleted(Dictionary<string, DateTime> a, Dictionary<string, DateTime> b)
+        {
+            var result = new Dictionary<string, DateTime>();
+            foreach (var kv in (a ?? new Dictionary<string, DateTime>()).Concat(b ?? new Dictionary<string, DateTime>()))
+                if (!result.TryGetValue(kv.Key, out var have) || kv.Value > have) result[kv.Key] = kv.Value;
+            return result;
+        }
+
+        /// <summary>Times of deleted players, and of reset players from before their reset, go on every PC.</summary>
+        private static void DropResetAndDeletedTimes(SyncDoc doc)
+        {
+            var byId = doc.Profiles.ToDictionary(p => p.Id);
+            foreach (var level in doc.Leaderboard.Levels.Values)
+            {
+                int removed = level.Runs.RemoveAll(r =>
+                {
+                    string id = FinalId(doc.JoinedProfiles, r.ProfileId);
+                    if (doc.DeletedProfiles.ContainsKey(id)) return true;
+                    return byId.TryGetValue(id, out var p) && p.TimesResetAt != default && r.Date.ToUniversalTime() <= p.TimesResetAt;
+                });
+                if (removed > 0 || level.Best.Keys.Any(id => doc.DeletedProfiles.ContainsKey(id))) level.RebuildBest();
+            }
+        }
+
+        private static Dictionary<string, MachineName> MergeMachineNames(Dictionary<string, MachineName> a, Dictionary<string, MachineName> b)
+        {
+            var result = new Dictionary<string, MachineName>();
+            foreach (var kv in (a ?? new Dictionary<string, MachineName>()).Concat(b ?? new Dictionary<string, MachineName>()))
+            {
+                if (kv.Value == null || string.IsNullOrEmpty(kv.Value.Name)) continue;
+                if (!result.TryGetValue(kv.Key, out var have) || kv.Value.Updated > have.Updated ||
+                    (kv.Value.Updated == have.Updated && string.CompareOrdinal(kv.Value.Name, have.Name) < 0))
+                    result[kv.Key] = kv.Value;
+            }
+            return result;
+        }
+
+        private static Dictionary<string, string> MergeJoined(Dictionary<string, string> a, Dictionary<string, string> b)
+        {
+            var result = new Dictionary<string, string>();
+            foreach (var kv in (a ?? new Dictionary<string, string>()).Concat(b ?? new Dictionary<string, string>()))
+                if (!result.TryGetValue(kv.Key, out var have) || string.CompareOrdinal(kv.Value, have) < 0) result[kv.Key] = kv.Value;
+            return result;
+        }
+
+        /// <summary>Follows the "joined into" chain to the profile id that's kept.</summary>
+        public static string FinalId(Dictionary<string, string> joined, string id)
+        {
+            if (id == null || joined == null) return id;
+            var seen = new HashSet<string>();
+            while (joined.TryGetValue(id, out var next) && seen.Add(id)) id = next;
+            return id;
+        }
+
+        /// <summary>
+        /// The same Steam friend as two profiles (added on two PCs before they synced): keep the older profile
+        /// and move the other one's stats and leaderboard times into it. Stats are kept apart per PC *and* per
+        /// old profile (key "machine/oldId"), so joining again later (a PC that still had the old profile) never
+        /// counts anything twice. Typed-in names are never joined: two people can have the same name.
+        /// </summary>
+        private static void JoinDuplicates(SyncDoc doc)
+        {
+            var joined = doc.JoinedProfiles;
+            foreach (var group in doc.Profiles.Where(p => p.SteamId != 0 && !joined.ContainsKey(p.Id)).GroupBy(p => p.SteamId))
+            {
+                if (group.Count() < 2) continue;
+                var keep = group.OrderBy(p => p.Created).ThenBy(p => p.Id, StringComparer.Ordinal).First();
+                foreach (var p in group)
+                    if (p != keep) joined[p.Id] = keep.Id;
+            }
+            if (joined.Count == 0) return;
+
+            var byId = doc.Profiles.ToDictionary(p => p.Id);
+            foreach (var old in doc.Profiles.Where(p => joined.ContainsKey(p.Id)).ToList())
+            {
+                string target = FinalId(joined, old.Id);
+                if (target == old.Id || !byId.TryGetValue(target, out var keep)) continue;
+                JoinInto(old, keep);
+                doc.Profiles.Remove(old);
+            }
+
+            // Leaderboard times of joined profiles move over too.
+            foreach (var level in doc.Leaderboard.Levels.Values)
+            {
+                bool moved = false;
+                foreach (var run in level.Runs)
+                {
+                    string target = FinalId(joined, run.ProfileId);
+                    if (target == run.ProfileId || !byId.ContainsKey(target)) continue;
+                    if (level.Best.TryGetValue(run.ProfileId, out var oldBest))
+                    {
+                        if (level.Best.TryGetValue(target, out var keptBest)) keptBest.Finishes = Math.Max(keptBest.Finishes, oldBest.Finishes);
+                        else { oldBest.ProfileId = target; level.Best[target] = oldBest; }
+                        level.Best.Remove(run.ProfileId);
+                    }
+                    run.ProfileId = target;
+                    moved = true;
+                }
+                if (moved) level.RebuildBest();
+            }
+        }
+
+        private static void JoinInto(Profile old, Profile keep)
+        {
+            // Name, Steam link and deleted state: the newest change wins, as for any profile.
+            var newer = old.Modified > keep.Modified ? old : keep;
+            keep.Name = newer.Name;
+            keep.IsArchived = newer.IsArchived;
+            if (old.Modified > keep.Modified) keep.Modified = old.Modified;
+            if (old.Created != default && (keep.Created == default || old.Created < keep.Created))
+            {
+                keep.Created = old.Created;
+                keep.CreatedOn = old.CreatedOn;
+            }
+            if (keep.StatsByMachine == null) keep.StatsByMachine = new Dictionary<string, PlayerStats>();
+            foreach (var kv in old.StatsByMachine ?? new Dictionary<string, PlayerStats>())
+            {
+                if (kv.Value == null || kv.Value.Updated <= old.StatsResetAt) continue;
+                string key = kv.Key.Contains("/") ? kv.Key : kv.Key + "/" + old.Id;
+                if (!keep.StatsByMachine.TryGetValue(key, out var have) || kv.Value.Updated > have.Updated) keep.StatsByMachine[key] = kv.Value;
+            }
         }
 
         private static List<Profile> MergeProfiles(List<Profile> a, List<Profile> b, DateTime season)
@@ -267,6 +418,13 @@ namespace CouchParty
                 var newer = pb.Modified > pa.Modified ? pb : pa;
                 var merged = newer;
                 merged.StatsResetAt = pa.StatsResetAt > pb.StatsResetAt ? pa.StatsResetAt : pb.StatsResetAt;
+                merged.TimesResetAt = pa.TimesResetAt > pb.TimesResetAt ? pa.TimesResetAt : pb.TimesResetAt;
+                // Created: the earliest known date (PCs may have guessed it for old profiles), and where.
+                var first = pa.Created == default ? pb : pb.Created == default ? pa
+                    : pb.Created < pa.Created ? pb : pa.Created < pb.Created ? pa
+                    : string.CompareOrdinal(pb.CreatedOn, pa.CreatedOn) < 0 ? pb : pa;
+                merged.Created = first.Created;
+                merged.CreatedOn = first.CreatedOn ?? (first == pa ? pb : pa).CreatedOn;
 
                 // Stats: per machine, the newest entry wins; entries from before a reset are dropped.
                 var stats = new Dictionary<string, PlayerStats>();

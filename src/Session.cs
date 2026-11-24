@@ -226,6 +226,77 @@ namespace CouchParty
             return list.OrderBy(p => p.Best).ThenByDescending(p => p.Runs).ToList();
         }
 
+        /// <summary>A player was reset or deleted: tonight's numbers for them go too (this PC only).</summary>
+        public static void ForgetProfile(string profileId)
+        {
+            var data = Current;
+            bool changed = data.Stats.Remove(profileId) | data.Players.Remove(profileId);
+            foreach (var map in data.Maps.Values)
+            {
+                changed |= map.Best.Remove(profileId);
+                if (map.PlayerRuns != null) changed |= map.PlayerRuns.Remove(profileId);
+                if (map.PlayerCrashes != null) changed |= map.PlayerCrashes.Remove(profileId);
+            }
+            if (changed) Save();
+        }
+
+        /// <summary>After sync joined two profiles (same Steam friend): move tonight's numbers to the kept one.</summary>
+        public static void RemapProfiles(Func<string, string> resolve)
+        {
+            var data = Current;
+            bool changed = false;
+            foreach (var id in data.Stats.Keys.ToList())
+            {
+                string to = resolve(id);
+                if (to == id) continue;
+                var moved = data.Stats[id];
+                data.Stats.Remove(id);
+                data.Stats[to] = data.Stats.TryGetValue(to, out var have) ? PlayerStats.Sum(new[] { have, moved }) : moved;
+                changed = true;
+            }
+            foreach (var id in data.Players.Keys.ToList())
+            {
+                string to = resolve(id);
+                if (to == id) continue;
+                var moved = data.Players[id];
+                data.Players.Remove(id);
+                if (data.Players.TryGetValue(to, out var have))
+                {
+                    have.Races += moved.Races; have.PersonalBests += moved.PersonalBests; have.Records += moved.Records;
+                    have.Crashes += moved.Crashes; have.Hits += moved.Hits;
+                }
+                else data.Players[to] = moved;
+                changed = true;
+            }
+            foreach (var map in data.Maps.Values)
+            {
+                foreach (var id in map.Best.Keys.ToList())
+                {
+                    string to = resolve(id);
+                    if (to == id) continue;
+                    float t = map.Best[id];
+                    map.Best.Remove(id);
+                    if (!map.Best.TryGetValue(to, out var have) || t < have) map.Best[to] = t;
+                    changed = true;
+                }
+                foreach (var counts in new[] { map.PlayerRuns, map.PlayerCrashes })
+                {
+                    if (counts == null) continue;
+                    foreach (var id in counts.Keys.ToList())
+                    {
+                        string to = resolve(id);
+                        if (to == id) continue;
+                        int n = counts[id];
+                        counts.Remove(id);
+                        counts.TryGetValue(to, out int have);
+                        counts[to] = have + n;
+                        changed = true;
+                    }
+                }
+            }
+            if (changed) Save();
+        }
+
         /// <summary>"Start a new evening" by hand.</summary>
         public static void Reset()
         {

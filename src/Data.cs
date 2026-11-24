@@ -29,6 +29,11 @@ namespace CouchParty
 
         /// <summary>When name / Steam link / archived state last changed (UTC). Newest wins when syncing.</summary>
         public DateTime Modified { get; set; }
+
+        /// <summary>When the profile was first made (UTC). The earliest one wins when syncing.</summary>
+        public DateTime Created { get; set; }
+        /// <summary>Machine id of the PC that made it (null = not known, made before this was saved).</summary>
+        public string CreatedOn { get; set; }
         public bool IsArchived { get; set; }
 
         /// <summary>Stats per machine (each PC only adds to its own entry); the totals are their sum.</summary>
@@ -36,6 +41,9 @@ namespace CouchParty
 
         /// <summary>"Reset stats" time (UTC): machine entries not updated since then are dropped.</summary>
         public DateTime StatsResetAt { get; set; }
+
+        /// <summary>This player was reset (UTC): their leaderboard times from before then are dropped on every PC.</summary>
+        public DateTime TimesResetAt { get; set; }
 
         /// <summary>This machine's stats entry: the one to add new numbers to.</summary>
         [JsonIgnore]
@@ -194,6 +202,26 @@ namespace CouchParty
 
         /// <summary>Last "Start fresh" that also wiped profiles (UTC): profiles not changed since then are dropped.</summary>
         public DateTime ProfilesWipedAt { get; set; }
+
+        /// <summary>PC names (machine id -> its sync key's name), so "added on living-room" can be shown. Synced.</summary>
+        public Dictionary<string, MachineName> MachineNames { get; set; } = new Dictionary<string, MachineName>();
+
+        /// <summary>
+        /// Profiles joined into another one (old id -> kept id): the same Steam friend added on two PCs before they
+        /// synced. Remembered so a PC that still has the old profile joins it too. Synced.
+        /// </summary>
+        public Dictionary<string, string> JoinedProfiles { get; set; } = new Dictionary<string, string>();
+
+        /// <summary>Profiles deleted for good (id -> when, UTC), so a PC that still has one doesn't bring it back. Synced.</summary>
+        public Dictionary<string, DateTime> DeletedProfiles { get; set; } = new Dictionary<string, DateTime>();
+    }
+
+    /// <summary>A PC's name: the name of its sync key on the server.</summary>
+    public class MachineName
+    {
+        public string Name { get; set; }
+        /// <summary>When this PC last saw a different name (UTC). The newest wins when syncing.</summary>
+        public DateTime Updated { get; set; }
     }
 
     /// <summary>One profile's best time on one map.</summary>
@@ -404,6 +432,9 @@ namespace CouchParty
 
             if (Profiles.Profiles == null) Profiles.Profiles = new List<Profile>();
             if (Profiles.Archived == null) Profiles.Archived = new List<Profile>();
+            if (Profiles.MachineNames == null) Profiles.MachineNames = new Dictionary<string, MachineName>();
+            if (Profiles.JoinedProfiles == null) Profiles.JoinedProfiles = new Dictionary<string, string>();
+            if (Profiles.DeletedProfiles == null) Profiles.DeletedProfiles = new Dictionary<string, DateTime>();
             bool upgraded = false;
             foreach (var p in Profiles.Profiles) p.IsArchived = false;
             foreach (var p in Profiles.Archived) p.IsArchived = true;
@@ -419,6 +450,16 @@ namespace CouchParty
                 }
                 p.LoadedLegacyStats = null;
                 if (p.Modified == default) { p.Modified = DateTime.UtcNow; upgraded = true; }
+                if (p.Created == default)
+                {
+                    // Made before creation dates were saved: use their first time on the leaderboard, if any.
+                    // (Syncing keeps the earliest date, so PCs that guessed differently agree in the end.)
+                    var first = Leaderboard.Levels.Values.SelectMany(l => l.Runs ?? new List<RunRecord>())
+                        .Where(r => r.ProfileId == p.Id && r.Date != default).Select(r => r.Date.ToUniversalTime())
+                        .DefaultIfEmpty(DateTime.UtcNow).Min();
+                    p.Created = first;
+                    upgraded = true;
+                }
             }
             StatsChanged();
             if (Profiles.SlotProfileIds == null || Profiles.SlotProfileIds.Length != 4)
@@ -526,6 +567,23 @@ namespace CouchParty
             if (!SuppressSync) Sync.MarkDirty();
         }
 
+        /// <summary>This PC's name, as the sync server calls its key. Saved (and synced) when it changes.</summary>
+        public static void SetMachineName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return;
+            name = name.Trim();
+            if (Profiles.MachineNames.TryGetValue(MachineId, out var have) && have.Name == name) return;
+            Profiles.MachineNames[MachineId] = new MachineName { Name = name, Updated = DateTime.UtcNow };
+            SuppressSync = true; // we're in the middle of a sync, which takes it along
+            SaveProfiles();
+            SuppressSync = false;
+            Plugin.Log.LogInfo($"Sync: this PC's key is called '{name}'.");
+        }
+
+        /// <summary>Name of the PC with this machine id, if any PC has synced with it.</summary>
+        public static string MachineNameOf(string machineId) =>
+            machineId != null && Profiles.MachineNames.TryGetValue(machineId, out var m) ? m?.Name : null;
+
         public static void RenameProfile(Profile p, string name)
         {
             p.Name = name;
@@ -583,15 +641,23 @@ namespace CouchParty
             Leaderboard = Leaderboard,
             SeasonStart = Profiles.SeasonStart,
             ProfilesWipedAt = Profiles.ProfilesWipedAt,
+            MachineNames = Profiles.MachineNames,
+            JoinedProfiles = Profiles.JoinedProfiles,
+            DeletedProfiles = Profiles.DeletedProfiles,
         });
 
         /// <summary>Takes merged data. Player 1-4 assignments and outfits stay as they are on this PC.</summary>
         public static void ApplySyncDoc(SyncDoc doc)
         {
+            var joined = doc.JoinedProfiles ?? new Dictionary<string, string>();
+            string Resolve(string id) => Sync.FinalId(joined, id);
             var local = Profiles.Profiles.Concat(Profiles.Archived).ToDictionary(p => p.Id);
             foreach (var p in doc.Profiles)
             {
-                if (local.TryGetValue(p.Id, out var mine))
+                // A profile joined into this one keeps lending its outfit (this PC may only have known that one).
+                if (!local.TryGetValue(p.Id, out var mine))
+                    mine = local.Values.FirstOrDefault(l => l.HasOutfit && Resolve(l.Id) == p.Id);
+                if (mine != null)
                 {
                     p.SoapboxId = mine.SoapboxId; p.HatId = mine.HatId; p.ColorId = mine.ColorId;
                     p.SoapboxName = mine.SoapboxName; p.HatName = mine.HatName; p.ColorName = mine.ColorName;
@@ -607,8 +673,16 @@ namespace CouchParty
             Profiles.Archived = doc.Profiles.Where(p => p.IsArchived).ToList();
             Profiles.SeasonStart = doc.SeasonStart;
             Profiles.ProfilesWipedAt = doc.ProfilesWipedAt;
+            Profiles.MachineNames = doc.MachineNames ?? new Dictionary<string, MachineName>();
+            Profiles.JoinedProfiles = joined;
+            Profiles.DeletedProfiles = doc.DeletedProfiles ?? new Dictionary<string, DateTime>();
+            foreach (var id in Profiles.DeletedProfiles.Keys) Session.ForgetProfile(id);
             for (int i = 0; i < 4; i++)
+            {
+                if (!string.IsNullOrEmpty(Profiles.SlotProfileIds[i])) Profiles.SlotProfileIds[i] = Resolve(Profiles.SlotProfileIds[i]);
                 if (GetProfile(Profiles.SlotProfileIds[i]) == null) Profiles.SlotProfileIds[i] = null;
+            }
+            Session.RemapProfiles(Resolve);
             Leaderboard = doc.Leaderboard;
             StatsChanged();
 
@@ -645,8 +719,59 @@ namespace CouchParty
             SaveProfiles();
         }
 
+        /// <summary>Brings an archived profile back, with its stats and times.</summary>
+        public static void RestoreProfile(Profile profile)
+        {
+            profile.IsArchived = false;
+            profile.Modified = DateTime.UtcNow;
+            Profiles.Archived.RemoveAll(p => p.Id == profile.Id);
+            if (!Profiles.Profiles.Any(p => p.Id == profile.Id)) Profiles.Profiles.Add(profile);
+            SaveProfiles();
+        }
+
+        /// <summary>
+        /// Reset one player: all their stats and all their leaderboard times go, on every synced PC (the profile
+        /// itself stays). Times recorded before the reset don't come back from PCs that were offline.
+        /// </summary>
+        public static void ResetProfile(Profile profile)
+        {
+            var now = DateTime.UtcNow;
+            profile.StatsByMachine.Clear();
+            profile.StatsResetAt = now;
+            profile.TimesResetAt = now;
+            RemoveTimes(profile.Id);
+            Session.ForgetProfile(profile.Id);
+            StatsChanged();
+            SaveProfiles();
+            SaveLeaderboard();
+        }
+
+        /// <summary>Deletes a profile for good: the profile, its stats and its leaderboard times, on every synced PC.</summary>
+        public static void DeleteProfileForGood(Profile profile)
+        {
+            Profiles.Profiles.RemoveAll(p => p.Id == profile.Id);
+            Profiles.Archived.RemoveAll(p => p.Id == profile.Id);
+            Profiles.DeletedProfiles[profile.Id] = DateTime.UtcNow;
+            for (int i = 0; i < 4; i++)
+                if (Profiles.SlotProfileIds[i] == profile.Id) Profiles.SlotProfileIds[i] = null;
+            RemoveTimes(profile.Id);
+            Session.ForgetProfile(profile.Id);
+            StatsChanged();
+            SaveProfiles();
+            SaveLeaderboard();
+        }
+
+        /// <summary>How many leaderboard times a profile has (for the delete / reset question).</summary>
+        public static int TimesOf(string profileId) =>
+            Leaderboard.Levels.Values.Sum(l => l.Runs.Count(r => r.ProfileId == profileId));
+
+        private static void RemoveTimes(string profileId)
+        {
+            foreach (var level in Leaderboard.Levels.Values) level.RemovePlayer(profileId);
+        }
+
         /// <summary>Removes a profile from the list but keeps it (with its stats) in the archive.</summary>
-        public static void DeleteProfile(Profile profile)
+        public static void ArchiveProfile(Profile profile)
         {
             profile.IsArchived = true;
             profile.Modified = DateTime.UtcNow;
@@ -682,7 +807,7 @@ namespace CouchParty
                 profile = archived;
                 note = "records and stats";
             }
-            else profile = new Profile { Name = name, SteamId = steamId, OutfitVersion = 2, Modified = DateTime.UtcNow };
+            else profile = new Profile { Name = name, SteamId = steamId, OutfitVersion = 2, Modified = DateTime.UtcNow, Created = DateTime.UtcNow, CreatedOn = MachineId };
             Profiles.Profiles.Add(profile);
 
             int relinked = RelinkOrphanedTimes(profile);

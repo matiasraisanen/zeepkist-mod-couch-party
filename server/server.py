@@ -27,6 +27,7 @@ import secrets
 import sys
 import threading
 import time
+from urllib.parse import quote
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
@@ -107,6 +108,7 @@ def key_name(token: str):
 # ---------------------------------------------------------------- HTTP
 
 class Handler(BaseHTTPRequestHandler):
+    pc_name = None  # name of the key that made this request (see authorize)
     server_version = "CouchPartySync/1"
     # HTTP/1.1 so "Expect: 100-continue" uploads get their go-ahead (Unity and Apache use it);
     # with HTTP/1.0 the client waits for the go-ahead while the server waits for the data.
@@ -123,6 +125,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         for k, v in (headers or {}).items():
             self.send_header(k, v)
+        if self.pc_name:
+            # Tells the mod what this PC's key is called, so profiles can say "added on <name>".
+            self.send_header("X-CouchParty-PC", quote(self.pc_name, safe=""))
         self.end_headers()
         if body and self.command != "HEAD":
             self.wfile.write(body)
@@ -131,6 +136,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send(code, json.dumps({"error": message}).encode())
 
     def route(self):
+        self.pc_name = None  # set by authorize(); one connection can carry several requests
         # Works with or without a reverse-proxy prefix (e.g. /couchparty/api/data).
         path = self.path.split("?", 1)[0].rstrip("/")
         for name in ("/api/data", "/api/health"):
@@ -145,6 +151,7 @@ class Handler(BaseHTTPRequestHandler):
         if name is None:
             time.sleep(1)  # slow down key guessing
             self.error(401, "unknown key")
+        self.pc_name = name
         return name
 
     def read_body(self):

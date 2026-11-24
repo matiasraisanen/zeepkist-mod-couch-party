@@ -73,6 +73,8 @@ namespace CouchParty
         // Styles
         private bool _stylesReady;
         private GUIStyle _title, _header, _label, _small, _row, _gold, _green, _dim, _panel, _button, _tabOn, _tabOff, _field;
+        // Profiles tab: colour-coded buttons (the same colour on the button and its confirmation), chips, stats link.
+        private GUIStyle _btnArchive, _btnReset, _btnDelete, _btnRestore, _rowHover, _chip, _statsLink, _statsLinkHover;
         private Texture2D _panelTex;
 
         // "Loaded" hint shown in the corner for a while after start-up.
@@ -390,38 +392,112 @@ namespace CouchParty
 
             var profiles = Store.Profiles.Profiles.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
             if (profiles.Count == 0) GUILayout.Label("No profiles yet.", _dim);
+            foreach (var p in profiles) DrawProfileRow(p, archived: false);
 
-            foreach (var p in profiles)
+            var archived = Store.Profiles.Archived.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            if (archived.Count > 0)
             {
-                GUILayout.BeginVertical(_row);
-                GUILayout.BeginHorizontal();
-                if (_renamingId == p.Id) DrawRename(p);
+                GUILayout.Space(10);
+                GUILayout.Label("Archived", _header);
+                GUILayout.Label("Hidden from Players, Stats and the Hall of Fame. Their stats and leaderboard times are kept; Restore brings them back.", _small);
+                GUILayout.Space(4);
+                foreach (var p in archived) DrawProfileRow(p, archived: true);
+            }
+        }
+
+        private string _confirmResetId;
+        /// <summary>Each profile row's area from the last repaint, for the hover look and clicking through to the stats.</summary>
+        private readonly Dictionary<string, Rect> _profileRowRects = new Dictionary<string, Rect>();
+
+        private void DrawProfileRow(Profile p, bool archived)
+        {
+            bool busy = _renamingId == p.Id || _confirmDeleteId == p.Id || _confirmResetId == p.Id;
+            bool hover = !archived && !busy && _profileRowRects.TryGetValue(p.Id, out var last) && last.Contains(Event.current.mousePosition);
+
+            GUILayout.BeginVertical(hover ? _rowHover : _row);
+            GUILayout.BeginHorizontal();
+            if (_renamingId == p.Id) DrawRename(p);
+            else
+            {
+                GUILayout.Label(p.Name, _header);
+                if (p.SteamId != 0) GUILayout.Label("Steam", _chip, GUILayout.ExpandWidth(false));
+                if (!archived) GUILayout.Label("Stats \u203a", hover ? _statsLinkHover : _statsLink);
+                GUILayout.FlexibleSpace();
+                if (_confirmResetId == p.Id)
+                {
+                    GUILayout.Label($"Reset {p.Name}? Their stats and {Count(Store.TimesOf(p.Id), "time")} go away on every PC.", _small, GUILayout.ExpandWidth(false));
+                    if (GUILayout.Button("Reset for good", _btnReset, GUILayout.Width(170))) { Store.ResetProfile(p); _confirmResetId = null; }
+                    if (GUILayout.Button("No", _button, GUILayout.Width(60))) _confirmResetId = null;
+                }
+                else if (_confirmDeleteId == p.Id)
+                {
+                    GUILayout.Label($"Delete {p.Name}? The profile, stats and {Count(Store.TimesOf(p.Id), "time")} go on every PC.", _small, GUILayout.ExpandWidth(false));
+                    if (GUILayout.Button("Delete for good", _btnDelete, GUILayout.Width(180)))
+                    {
+                        Store.DeleteProfileForGood(p);
+                        _confirmDeleteId = null;
+                        Game.ApplyNames();
+                    }
+                    if (GUILayout.Button("No", _button, GUILayout.Width(60))) _confirmDeleteId = null;
+                }
+                else if (archived)
+                {
+                    if (GUILayout.Button("Restore", _btnRestore, GUILayout.Width(120))) Store.RestoreProfile(p);
+                    if (GUILayout.Button("Delete", _btnDelete, GUILayout.Width(100))) { _confirmDeleteId = p.Id; _confirmResetId = null; }
+                }
                 else
                 {
-                    GUILayout.Label(p.Name, _header, GUILayout.MinWidth(220));
-                    if (p.SteamId != 0) GUILayout.Label("Steam", _dim, GUILayout.Width(70));
-                    GUILayout.FlexibleSpace();
                     if (GUILayout.Button("Rename", _button, GUILayout.Width(110)))
                     {
                         _renamingId = p.Id;
                         _renameText = p.Name;
                         _focusRename = true;
                     }
-                    if (_confirmDeleteId == p.Id)
-                    {
-                        GUILayout.Label("Re-adding them later restores their records.", _small, GUILayout.Width(200));
-                        if (GUILayout.Button("Delete", _button, GUILayout.Width(100))) { Store.DeleteProfile(p); _confirmDeleteId = null; Game.ApplyNames(); }
-                        if (GUILayout.Button("No", _button, GUILayout.Width(60))) _confirmDeleteId = null;
-                    }
-                    else if (GUILayout.Button("Delete", _button, GUILayout.Width(100))) _confirmDeleteId = p.Id;
+                    if (GUILayout.Button("Archive", _btnArchive, GUILayout.Width(110))) { Store.ArchiveProfile(p); Game.ApplyNames(); }
+                    if (GUILayout.Button("Reset", _btnReset, GUILayout.Width(90))) { _confirmResetId = p.Id; _confirmDeleteId = null; }
+                    if (GUILayout.Button("Delete", _btnDelete, GUILayout.Width(100))) { _confirmDeleteId = p.Id; _confirmResetId = null; }
                 }
-                GUILayout.EndHorizontal();
-
-                var st = p.Stats;
-                GUILayout.Label($"{RecordsHeld(p)} map records held  |  {st.Races} races", _small);
-                GUILayout.EndVertical();
-                GUILayout.Space(4);
             }
+            GUILayout.EndHorizontal();
+
+            // Chips: races, when (and on which PC) it was added, when it was archived.
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(Count(p.Stats?.Races ?? 0, "race"), _chip, GUILayout.ExpandWidth(false));
+            string added = AddedText(p);
+            if (added != null) GUILayout.Label(added, _chip, GUILayout.ExpandWidth(false));
+            if (archived && p.Modified != default) GUILayout.Label($"Archived {DateText(p.Modified)}", _chip, GUILayout.ExpandWidth(false));
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            GUILayout.EndVertical();
+
+            // The whole row opens the player's stats (the buttons in it take their own clicks first).
+            var rect = GUILayoutUtility.GetLastRect();
+            var e = Event.current;
+            if (e.type == EventType.Repaint) _profileRowRects[p.Id] = rect;
+            if (!archived && !busy && e.type == EventType.MouseDown && e.button == 0 && rect.Contains(e.mousePosition))
+            {
+                _statsProfileId = p.Id;
+                _statsTonight = false;
+                _tab = Tab.Stats;
+                e.Use();
+            }
+            GUILayout.Space(4);
+        }
+
+        private static string DateText(DateTime utc) =>
+            utc.ToLocalTime().ToString("d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
+
+        /// <summary>"Added on living-room · 2 Nov 2026"; just the date when everything is from this PC; null if unknown.</summary>
+        private static string AddedText(Profile p)
+        {
+            if (p.Created == default) return null;
+            string when = DateText(p.Created);
+            string pc = Store.MachineNameOf(p.CreatedOn);
+            if (pc != null) return $"Added on {pc}  \u00b7  {when}";
+            bool severalPcs = Sync.Configured || Store.Profiles.MachineNames.Count > 0 ||
+                              Store.Profiles.Profiles.Concat(Store.Profiles.Archived).Any(x => x.CreatedOn != null && x.CreatedOn != Store.MachineId);
+            if (!severalPcs || p.CreatedOn == null) return $"Added {when}";
+            return $"Added on {(p.CreatedOn == Store.MachineId ? "this PC" : "another PC")}  \u00b7  {when}";
         }
 
         private void DrawRename(Profile p)
@@ -765,6 +841,8 @@ namespace CouchParty
         private void DrawStatsTab()
         {
             var profiles = ProfilesWithStats();
+            var opened = Store.GetProfile(_statsProfileId); // opened from the Profiles tab, maybe before their first race
+            if (opened != null && !opened.IsArchived && !profiles.Contains(opened)) profiles.Add(opened);
             if (profiles.Count == 0)
             {
                 GUILayout.Label("No stats yet. They build up as profiled players race in local multiplayer.", _dim);
@@ -1509,6 +1587,10 @@ namespace CouchParty
         private static readonly Color TimeYellow = new Color(1f, 0.9f, 0.2f, 1f);
         private static readonly Color ButtonMuted = new Color(0.69f, 0.33f, 0.33f, 1f);
         private static readonly Color ButtonOrange = new Color(1f, 0.55f, 0f, 1f);
+        private static readonly Color ButtonArchive = new Color(0.29f, 0.41f, 0.59f, 1f);
+        private static readonly Color ButtonReset = new Color(0.8f, 0.5f, 0.08f, 1f);
+        private static readonly Color ButtonDelete = new Color(0.77f, 0.11f, 0.14f, 1f);
+        private static readonly Color ButtonRestore = new Color(0.18f, 0.53f, 0.33f, 1f);
 
         private Texture2D _texBody, _texTitleBand, _texRowA, _texRowB, _texHeader, _texAccent, _texBarBack, _texBlack, _texShadow;
         private GUIStyle _groupHeader, _statValue, _barLabel, _ovBand, _ovSmall, _ovSmallGold, _ovCell, _ovCellGold, _ovColHead, _ovMoment,
@@ -1568,6 +1650,8 @@ namespace CouchParty
 
             _row = new GUIStyle { padding = new RectOffset(10, 10, 6, 6) };
             _row.normal.background = Tex(new Color(1f, 1f, 1f, 0.07f));
+            _rowHover = new GUIStyle(_row);
+            _rowHover.normal.background = Tex(new Color(1f, 1f, 1f, 0.15f));
 
             _label = new GUIStyle(GUI.skin.label) { fontSize = 22, wordWrap = false };
             _label.normal.textColor = Color.white;
@@ -1581,6 +1665,11 @@ namespace CouchParty
             _gold.normal.textColor = TimeYellow;
             _green = new GUIStyle(_label) { fontStyle = FontStyle.Bold };
             _green.normal.textColor = new Color(0.55f, 1f, 0.55f);
+            _chip = new GUIStyle(_small) { wordWrap = false, padding = new RectOffset(10, 10, 3, 3), margin = new RectOffset(0, 8, 4, 2) };
+            _chip.normal.background = Tex(new Color(0f, 0f, 0f, 0.28f));
+            _statsLink = new GUIStyle(_dim) { fontSize = 18, fontStyle = FontStyle.Bold, margin = new RectOffset(10, 4, 4, 4) };
+            _statsLinkHover = new GUIStyle(_statsLink);
+            _statsLinkHover.normal.textColor = TimeYellow;
 
             // Buttons like the game's: muted red, orange when hovered/selected.
             _button = new GUIStyle(GUI.skin.button)
@@ -1601,6 +1690,18 @@ namespace CouchParty
             _tabOn = new GUIStyle(_tabOff);
             _tabOn.normal = new GUIStyleState { background = orange, textColor = Color.white };
             _tabOn.hover = _tabOn.normal;
+            GUIStyle Colored(Color c)
+            {
+                var st = new GUIStyle(_button);
+                st.normal.background = st.focused.background = Tex(c);
+                st.hover.background = Tex(Color.Lerp(c, Color.white, 0.18f)); // keeps its colour on hover (not orange)
+                st.active.background = Tex(Color.Lerp(c, Color.black, 0.2f));
+                return st;
+            }
+            _btnArchive = Colored(ButtonArchive);
+            _btnReset = Colored(ButtonReset);
+            _btnDelete = Colored(ButtonDelete);
+            _btnRestore = Colored(ButtonRestore);
 
             _field = new GUIStyle(GUI.skin.textField) { fontSize = 22, padding = new RectOffset(8, 8, 6, 6), border = new RectOffset(0, 0, 0, 0) };
             var fieldTex = Tex(new Color(0.2f, 0.02f, 0.02f, 1f));

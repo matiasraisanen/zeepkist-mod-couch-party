@@ -53,7 +53,7 @@ Always use HTTPS. Over plain HTTP, anyone on the same network could read the key
 Every PC that syncs needs its own key. Run these on the server, in the folder with `docker-compose.yml`, while the container is running.
 Changes take effect immediately; no restart needed.
 
-**Add a PC:** pick a name for it (anything without spaces, e.g. `living-room`, `friends-pc`) and create a key:
+**Add a PC:** pick a name for it (anything without spaces, e.g. `living-room`, `friends-pc`) and create a key. The mod shows this name in the game ("Added on living-room"), so pick something your friends will recognise:
 
 ```bash
 docker compose exec couchparty python /app/server.py addkey friends-pc

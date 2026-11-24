@@ -147,5 +147,102 @@ Check("version guard: same version is not newer", !Newer("0.9.4", "0.9.4"));
 var va = SyncDoc.Clone(m); va.WrittenBy = "0.9.4"; var vb = SyncDoc.Clone(m); vb.WrittenBy = "1.0.0";
 Check("version guard: merge keeps the newest WrittenBy", Merge(va, vb).WrittenBy == "1.0.0" && Merge(vb, va).WrittenBy == "1.0.0");
 
+// ---- Same Steam friend added on two PCs before they synced: joined into the older profile
+var ja = new SyncDoc();
+var bobA = new Profile { Id = "bobA", Name = "Bob", SteamId = 76561190000000042, Modified = t0, Created = t0, CreatedOn = "A" };
+bobA.StatsByMachine["A"] = new PlayerStats { Races = 5, Wins = 2, Updated = t0.AddHours(1) };
+ja.Profiles.Add(bobA);
+var jlA = new LevelRecords { LevelName = "test-map", LastPlayed = t0.AddHours(1).ToLocalTime() };
+jlA.Runs.Add(new RunRecord { Id = "jr1", ProfileId = "bobA", Name = "Bob", Time = 31f, Machine = "A", Date = t0 });
+jlA.RebuildBest();
+ja.Leaderboard.Levels["J"] = jlA;
+ja.MachineNames["A"] = new MachineName { Name = "living-room", Updated = t0 };
+
+var jb = new SyncDoc();
+var bobB = new Profile { Id = "bobB", Name = "Bobby", SteamId = 76561190000000042, Modified = t0.AddHours(3), Created = t0.AddHours(2), CreatedOn = "B" };
+bobB.StatsByMachine["B"] = new PlayerStats { Races = 3, Wins = 1, Updated = t0.AddHours(3) };
+jb.Profiles.Add(bobB);
+var jlB = new LevelRecords { LevelName = "test-map", LastPlayed = t0.AddHours(3).ToLocalTime() };
+jlB.Runs.Add(new RunRecord { Id = "jr2", ProfileId = "bobB", Name = "Bobby", Time = 29f, Machine = "B", Date = t0.AddHours(3) });
+jlB.RebuildBest();
+jb.Leaderboard.Levels["J"] = jlB;
+jb.MachineNames["B"] = new MachineName { Name = "cabin", Updated = t0 };
+
+var jm = Merge(ja, jb);
+var bob = jm.Profiles.SingleOrDefault(p => p.SteamId == 76561190000000042);
+Check("join: one profile left, the older one (bobA)", jm.Profiles.Count(p => p.SteamId == 76561190000000042) == 1 && bob?.Id == "bobA");
+Check("join: newest name wins, created where it was first made", bob?.Name == "Bobby" && bob.Created == t0 && bob.CreatedOn == "A");
+Check("join: stats from both added up (8 races)", bob != null && PlayerStats.Sum(bob.StatsByMachine.Values).Races == 8);
+Check("join: times moved over (best 29.0, both runs)", jm.Leaderboard.Levels["J"].Runs.All(r => r.ProfileId == "bobA") &&
+      Math.Abs(jm.Leaderboard.Levels["J"].Best["bobA"].Time - 29f) < 0.001 && !jm.Leaderboard.Levels["J"].Best.ContainsKey("bobB"));
+Check("join: same result both ways", JsonConvert.SerializeObject(Merge(jb, ja).Profiles.Select(p => new { p.Id, p.Name, R = PlayerStats.Sum(p.StatsByMachine.Values).Races })) ==
+      JsonConvert.SerializeObject(jm.Profiles.Select(p => new { p.Id, p.Name, R = PlayerStats.Sum(p.StatsByMachine.Values).Races })));
+Check("join: remembered (bobB -> bobA)", jm.JoinedProfiles.TryGetValue("bobB", out var into) && into == "bobA");
+
+// A third PC still had the old profile and raced with it offline: joins in without counting anything twice.
+var jc = new SyncDoc();
+var bobC = new Profile { Id = "bobB", Name = "Bobby", SteamId = 76561190000000042, Modified = t0.AddHours(3), Created = t0.AddHours(2), CreatedOn = "B" };
+bobC.StatsByMachine["B"] = new PlayerStats { Races = 3, Wins = 1, Updated = t0.AddHours(3) };
+bobC.StatsByMachine["C"] = new PlayerStats { Races = 4, Updated = t0.AddHours(5) };
+jc.Profiles.Add(bobC);
+var jm2 = Merge(jm, jc);
+var bob2 = jm2.Profiles.Single(p => p.SteamId == 76561190000000042);
+Check("join again later: 12 races (B once, plus C's 4)", jm2.Profiles.Count(p => p.SteamId == 76561190000000042) == 1 && PlayerStats.Sum(bob2.StatsByMachine.Values).Races == 12);
+Check("join: merging the result with itself changes nothing", Merge(jm2, jm2).ToJson() == jm2.ToJson());
+
+// Typed-in names are never joined (two people can have the same name).
+var na = new SyncDoc(); na.Profiles.Add(new Profile { Id = "n1", Name = "Carol", Modified = t0, Created = t0 });
+var nb = new SyncDoc(); nb.Profiles.Add(new Profile { Id = "n2", Name = "Carol", Modified = t0, Created = t0 });
+Check("join: same typed-in name stays two profiles", Merge(na, nb).Profiles.Count == 2);
+
+// PC names: union; the newest name for a PC wins.
+var pcA = new SyncDoc(); pcA.MachineNames["A"] = new MachineName { Name = "old-name", Updated = t0 };
+var pcB = new SyncDoc(); pcB.MachineNames["A"] = new MachineName { Name = "living-room", Updated = t0.AddHours(1) };
+pcB.MachineNames["B"] = new MachineName { Name = "cabin", Updated = t0 };
+var pcm = Merge(pcA, pcB);
+Check("PC names: newest wins, both PCs kept", pcm.MachineNames["A"].Name == "living-room" && pcm.MachineNames["B"].Name == "cabin" &&
+      Merge(pcB, pcA).MachineNames["A"].Name == "living-room");
+
+// Created: the earliest date wins (old profiles get a guessed date on each PC).
+var ca = new SyncDoc(); ca.Profiles.Add(new Profile { Id = "c1", Name = "Dave", Modified = t0, Created = t0.AddDays(2) });
+var cb = new SyncDoc(); cb.Profiles.Add(new Profile { Id = "c1", Name = "Dave", Modified = t0, Created = t0, CreatedOn = "B" });
+Check("created: earliest date wins, with its PC", Merge(ca, cb).Profiles[0].Created == t0 && Merge(ca, cb).Profiles[0].CreatedOn == "B" &&
+      Merge(cb, ca).Profiles[0].Created == t0);
+
+// ---- Delete for good: gone on every PC, and an offline PC can't bring it back
+var da = new SyncDoc();
+da.DeletedProfiles["erin"] = t0.AddHours(4);
+var db = new SyncDoc();
+var erin = new Profile { Id = "erin", Name = "Erin", Modified = t0.AddHours(5), Created = t0 };
+erin.StatsByMachine["B"] = new PlayerStats { Races = 7, Updated = t0.AddHours(5) };
+db.Profiles.Add(erin);
+var dl = new LevelRecords { LevelName = "test-map", LastPlayed = t0.AddHours(5).ToLocalTime() };
+dl.Runs.Add(new RunRecord { Id = "er1", ProfileId = "erin", Name = "Erin", Time = 25f, Machine = "B", Date = t0.AddHours(5) });
+dl.RebuildBest();
+db.Leaderboard.Levels["D"] = dl;
+var dm = Merge(da, db);
+Check("delete: profile gone everywhere (even changed later offline)", !dm.Profiles.Any(p => p.Id == "erin") && !Merge(db, da).Profiles.Any(p => p.Id == "erin"));
+Check("delete: their times gone, record freed", !dm.Leaderboard.Levels["D"].Runs.Any() && !dm.Leaderboard.Levels["D"].Best.ContainsKey("erin"));
+
+// ---- Reset one player: their stats and their times from before the reset go; newer ones stay
+var ra = new SyncDoc();
+var fay = new Profile { Id = "fay", Name = "Fay", Modified = t0, Created = t0, StatsResetAt = t0.AddHours(3), TimesResetAt = t0.AddHours(3) };
+ra.Profiles.Add(fay);
+var rb = new SyncDoc();
+var fayB = new Profile { Id = "fay", Name = "Fay", Modified = t0, Created = t0 };
+fayB.StatsByMachine["B"] = new PlayerStats { Races = 9, Updated = t0.AddHours(1) };
+rb.Profiles.Add(fayB);
+var rl = new LevelRecords { LevelName = "test-map", LastPlayed = t0.AddHours(4).ToLocalTime() };
+rl.Runs.Add(new RunRecord { Id = "fr1", ProfileId = "fay", Name = "Fay", Time = 22f, Machine = "B", Date = t0.AddHours(1) });
+rl.Runs.Add(new RunRecord { Id = "fr2", ProfileId = "fay", Name = "Fay", Time = 26f, Machine = "B", Date = t0.AddHours(4) });
+rl.RebuildBest();
+rb.Leaderboard.Levels["R"] = rl;
+var rm = Merge(ra, rb);
+var fayM = rm.Profiles.Single(p => p.Id == "fay");
+Check("reset: profile kept, old stats from an offline PC dropped", PlayerStats.Sum(fayM.StatsByMachine.Values).Races == 0);
+Check("reset: times from before the reset gone, newer one kept (26.0)", rm.Leaderboard.Levels["R"].Runs.Select(r => r.Id).SequenceEqual(new[] { "fr2" }) &&
+      Math.Abs(rm.Leaderboard.Levels["R"].Best["fay"].Time - 26f) < 0.001);
+Check("reset: same result both ways", Merge(rb, ra).Leaderboard.Levels["R"].Runs.Select(r => r.Id).SequenceEqual(new[] { "fr2" }));
+
 Console.WriteLine(failures == 0 ? "\nALL PASSED" : $"\n{failures} FAILED");
 return failures;

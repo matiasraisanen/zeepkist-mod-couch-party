@@ -38,7 +38,7 @@ from NuGet.
 dotnet run --project tests/CouchParty.Tests -c Release
 ```
 
-The tests (34 checks) cover sync merging, old save files, Start fresh and the version guard. They must
+The tests (50 checks) cover sync merging (including joining duplicate Steam profiles and PC names), old save files, Start fresh and the version guard. They must
 print `ALL PASSED`.
 
 ```bash
@@ -76,7 +76,7 @@ should run the same version.
 | `src/SteamNames.cs` | Steam friends list for adding profiles |
 | `src/Access.cs` | Reflection helpers for private game members |
 | `src/Toolbar.cs` | ZeepSDK toolbar menu |
-| `server/server.py` | Sync server, Python standard library only, meant to run in Docker behind a reverse proxy with HTTPS. Stores one JSON document, checks per-PC keys, optimistic locking with a revision number (ETag / If-Match), keeps 100 old versions. Knows nothing about the stat fields |
+| `server/server.py` | Sync server, Python standard library only, meant to run in Docker behind a reverse proxy with HTTPS. Stores one JSON document, checks per-PC keys, optimistic locking with a revision number (ETag / If-Match), keeps 100 old versions, tells each PC its key's name (`X-CouchParty-PC` header). Knows nothing about the stat fields |
 | `tests/CouchParty.Tests` | Test program for merging and save files |
 | `tools/memberrefs.py` | The member scan above |
 | `tools/deploy.sh` | Build on Linux, copy the DLL to the game PC over SSH, fetch `LogOutput.log`. Host and paths come from environment variables, never the repo |
@@ -171,7 +171,13 @@ timestamp and the race time).
 - **Merging is done in the mod** (`Sync.Merge`):
   - Runs are a union by id, minus deleted runs and cleared maps.
   - Stats are kept per PC (newest wins per PC) and summed.
-  - Profiles: last write wins.
+  - Profiles: last write wins. The same Steam ID on two profiles (added on two PCs before syncing) is
+    joined into the earliest-created one; `JoinedProfiles` remembers old id -> kept id, and the old
+    profile's stats move under keys `machine/oldId` so joining again never double counts.
+  - Per-player Reset (`TimesResetAt`, `StatsResetAt`) and Delete (`DeletedProfiles`) win: older stats and
+    runs from offline PCs are dropped when merging. Archive is just `IsArchived` (last write wins).
+  - PC names: each PC learns its key's name from the server and shares it in `MachineNames`; profiles
+    store `Created` (earliest wins) and `CreatedOn` (machine id).
   - Seasons come from Start fresh.
 - **Version guard:** every upload records `WrittenBy` (mod version). An older mod only downloads, and
   shows "update the mod on this PC", so it can't drop newer stat fields.

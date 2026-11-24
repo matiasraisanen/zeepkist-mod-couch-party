@@ -30,6 +30,8 @@ These are mockups at 1080p with four players. In the game, the background is the
 **🪪 Player profiles**
 - Add friends by typing a name or picking them from your Steam friends list. Profiles use the name they chose, not your nickname for them.
 - Assign who is Player 1–4. Their names show on the player-select screen and in the race.
+- Each profile shows its races and when it was added (and on which PC, when you sync). Click a profile to see its stats.
+- **Archive** hides a profile but keeps its stats and times (**Restore** brings it back). **Reset** wipes a player's stats and leaderboard times. **Delete** removes the profile with its stats and times. Reset and Delete ask first and apply on every synced PC.
 - Outfits (soapbox, hat, colour) are remembered and picked for each player automatically next time.
 
 **🏆 Local leaderboards**
@@ -71,7 +73,10 @@ Requires **ZeepSDK** (Modkist installs it together with BepInEx).
 | **F8** | Open/close the Couch Party window |
 | **F9** | Switch view: on the Stats tab between **all time** and **tonight**; on the results screen between **best per player** and **all runs** |
 
-1. **Profiles tab:** add your friends by typing a name (Enter adds it) or choosing from Steam friends. Steam profiles use the name your friend chose, not the nickname you gave them. To rename, press **Rename**, type, then press **Enter** (Esc cancels).
+1. **Profiles tab:** add your friends by typing a name (Enter adds it) or choosing from Steam friends. Steam profiles use the name your friend chose, not the nickname you gave them. To rename, press **Rename**, type, then press **Enter** (Esc cancels). Click a profile to open its stats. Each profile has:
+   - **Archive:** hides the profile from Players, Stats and the Hall of Fame. Its stats and leaderboard times are kept. Archived profiles are listed at the bottom with **Restore**. Adding the same player again also restores them.
+   - **Reset:** wipes all of the player's stats and all their leaderboard times, on every synced PC. The profile stays.
+   - **Delete:** removes the profile, its stats and its leaderboard times for good, on every synced PC. Adding the same Steam friend again later makes a new, empty profile.
 2. Go to the player-select screen and let everyone join as usual.
 3. **Players tab:** choose a profile for Player 1, 2, 3 and 4. The game now shows those names instead of "Player N". Your picks are remembered for next time.
 4. **Outfits are automatic.** Whatever a player picks on the player-select screen is saved to their profile when the race starts. Next time that player joins, their saved outfit is selected for them; they can still change it, and the new choice is saved instead.
@@ -174,7 +179,10 @@ Use the same profiles, stats and leaderboards on several PCs, for example at a f
 - **Merging, so nothing is lost:**
   - All runs from every PC are combined. Times you removed and maps you cleared stay removed.
   - Stats are counted per PC and added together.
-  - Renames and deletions: the newest change wins.
+  - Renames and archiving: the newest change wins.
+  - Reset and Delete win over older data: a PC that was offline can't bring back the stats, times or profile.
+  - **The same Steam friend added on two PCs** before they synced: the two profiles are joined into the one made first. Their stats and times are added together, and the newest name wins. Profiles made by typing a name are never joined, because two people can have the same name.
+- **PC names:** each PC is named after its key on the server, so a profile can say "Added on living-room". Rename a PC by replacing its key with one of a new name. This needs an up-to-date `server.py`; with an older server, profiles say "this PC" or "another PC" instead.
 - **What stays per PC:** Player 1–4 picks and outfits, since cosmetic unlocks differ between Steam accounts.
 - **Keep every PC on the same mod version.** An older version doesn't know newer stats and would drop them when uploading. So if a PC finds data from a newer version on the server, it only downloads (you still see the latest profiles and times) and shows "update the mod on this PC" until it's updated.
 - **Leaving a friend's PC:** press **Forget on this PC** to stop it syncing. You can also remove that PC's key on the server.
