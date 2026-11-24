@@ -1,6 +1,6 @@
 # Couch Party: a Zeepkist mod for local multiplayer
 
-Zeepkist's local split-screen calls everyone "Player 1, Player 2…", forgets everything when you quit, and keeps no records. Couch Party fixes that, and adds a few things for bragging rights.
+Zeepkist's local split-screen calls everyone "Player 1, Player 2…", forgets everything when you quit, and keeps no records. Couch Party fixes that by adding persistent player profiles and per-map leaderboards, and adds a few things for bragging rights.
 
 ## What it looks like
 
