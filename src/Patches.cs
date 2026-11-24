@@ -131,6 +131,8 @@ namespace CouchParty
                 Plugin.RoundStartTime = -1f; // round over: debug lines say "no race" again
                 var summary = Game.RecordRace(gm);
                 StatsTracker.CommitRace(summary);
+                try { Session.AddRace(summary); }
+                catch (Exception e) { Plugin.Log.LogWarning($"Updating tonight's session failed: {e.Message}"); }
                 if (summary != null)
                 {
                     CouchUI.Instance?.ShowResults(summary);

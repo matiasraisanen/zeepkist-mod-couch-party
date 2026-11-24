@@ -88,7 +88,7 @@ namespace CouchParty
         public int Wins { get; set; }
         public int Finishes { get; set; }
         public int Dnfs { get; set; }
-        public int Shortcuts { get; set; }        // crossed the finish but missed checkpoints
+        public int ShortcutFinishes { get; set; } // crossed the finish but missed checkpoints
         public int PersonalBests { get; set; }
         public int RecordsBroken { get; set; }
         public int Crashes { get; set; }          // race ended early: hard crash, eject or timeout (the total)
@@ -116,8 +116,8 @@ namespace CouchParty
         public int CarToCarHits { get; set; }      // hits with another racer's car (you're both counted)
         public int RammedOthers { get; set; }      // of those: you drove into them
         public int GotRammed { get; set; }   // they drove into you
-        public int Knockouts { get; set; }   // someone crashed or didn't finish soon after bumping into you
-        public int WheelsKnockedOff { get; set; } // wheels other racers lost right after bumping into you
+        public int Knockouts { get; set; }   // you rammed someone and they crashed soon after
+        public int WheelsKnockedOff { get; set; } // you rammed someone and they lost a wheel before recovering
         public int CatsHugged { get; set; }        // walking cats hit by your car
         public int CatCrashes { get; set; }        // crashed after hitting a cat, before getting back on track
 
@@ -125,6 +125,18 @@ namespace CouchParty
         public double AirSeconds { get; set; }
         public float LongestJumpSeconds { get; set; }
         public int BigJumps { get; set; }          // 1 second or more in the air
+
+        // Stunts: full rotations in the air, landed without crashing.
+        public int FrontFlips { get; set; }
+        public int Backflips { get; set; }
+        public int BarrelRolls { get; set; }
+        // Flat spins landed, by size: a 540 counts as a 360, a 900 as a 720, anything from 1080 up as a 1080.
+        public int Spins180 { get; set; }
+        public int Spins360 { get; set; }
+        public int Spins720 { get; set; }
+        public int Spins1080 { get; set; }
+        public int BiggestSpin { get; set; }       // exact degrees of the biggest spin landed, e.g. 2245
+        public int ReverseFinishes { get; set; }   // valid finishes crossing the line rear wheels first
 
         /// <summary>When this entry last changed (UTC).</summary>
         public DateTime Updated { get; set; }
@@ -143,7 +155,7 @@ namespace CouchParty
             {
                 if (s == null) continue;
                 t.Races += s.Races; t.Wins += s.Wins; t.Finishes += s.Finishes; t.Dnfs += s.Dnfs;
-                t.Shortcuts += s.Shortcuts; t.PersonalBests += s.PersonalBests; t.RecordsBroken += s.RecordsBroken;
+                t.ShortcutFinishes += s.ShortcutFinishes; t.PersonalBests += s.PersonalBests; t.RecordsBroken += s.RecordsBroken;
                 t.Crashes += s.Crashes; t.Ejects += s.Ejects; t.Timeouts += s.Timeouts; t.WheelsLost += s.WheelsLost; t.DistanceMeters += s.DistanceMeters;
                 t.TopSpeedKmh = Math.Max(t.TopSpeedKmh, s.TopSpeedKmh); t.FinishTimeSeconds += s.FinishTimeSeconds;
                 t.ThreeWheelFinishes += s.ThreeWheelFinishes; t.TwoWheelFinishes += s.TwoWheelFinishes;
@@ -155,6 +167,9 @@ namespace CouchParty
                 t.CatCrashes += s.CatCrashes;
                 t.AirSeconds += s.AirSeconds; t.LongestJumpSeconds = Math.Max(t.LongestJumpSeconds, s.LongestJumpSeconds);
                 t.BigJumps += s.BigJumps;
+                t.FrontFlips += s.FrontFlips; t.Backflips += s.Backflips; t.BarrelRolls += s.BarrelRolls;
+                t.Spins180 += s.Spins180; t.Spins360 += s.Spins360; t.Spins720 += s.Spins720; t.Spins1080 += s.Spins1080; t.BiggestSpin = Math.Max(t.BiggestSpin, s.BiggestSpin);
+                t.ReverseFinishes += s.ReverseFinishes;
                 if (s.Updated > t.Updated) t.Updated = s.Updated;
             }
             return t;

@@ -20,7 +20,7 @@ The examples use `https://your-domain.example/couchparty`. Replace it with your 
    docker compose up -d --build
    ```
 
-2. Create a key for each PC (the key is printed once):
+2. Create a key for each PC that will sync (see [Managing keys](#managing-keys) below):
 
    ```bash
    docker compose exec couchparty python /app/server.py addkey my-pc
@@ -50,12 +50,50 @@ Always use HTTPS. Over plain HTTP, anyone on the same network could read the key
 
 ## Managing keys
 
+Every PC that syncs needs its own key. Run these on the server, in the folder with `docker-compose.yml`, while the container is running.
+Changes take effect immediately; no restart needed.
+
+**Add a PC:** pick a name for it (anything without spaces, e.g. `living-room`, `friends-pc`) and create a key:
+
+```bash
+docker compose exec couchparty python /app/server.py addkey friends-pc
+```
+
+It prints something like:
+
+```
+Key for 'friends-pc' (enter it in the game: F8 > Sync):
+q3J9x...a long random string...Zk
+```
+
+Copy the whole key and enter it on that PC in **F8 → Sync**, together with the server address, then press **Save & sync**.
+Send the key privately (not in a public chat): anyone with it can read and change your synced data.
+
+**List PCs** (shows the names only, not the keys):
+
 ```bash
 docker compose exec couchparty python /app/server.py listkeys
+```
+
+**Remove a PC** (it can't sync any more; its local copy stays on that PC):
+
+```bash
 docker compose exec couchparty python /app/server.py removekey friends-pc
 ```
 
-Changes take effect immediately; no restart needed.
+**See a key again:** keys are stored as plain text in `data/keys.json` (keep that folder private):
+
+```bash
+docker compose exec couchparty cat /data/keys.json
+```
+
+**Lost a key, or think it leaked?** Remove it and add it again under the same name. This makes a new key; enter it in the game on that PC.
+The old key stops working straight away.
+
+```bash
+docker compose exec couchparty python /app/server.py removekey friends-pc
+docker compose exec couchparty python /app/server.py addkey friends-pc
+```
 
 ## Files
 

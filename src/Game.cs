@@ -23,8 +23,24 @@ namespace CouchParty
         public float GapToRecord = float.MaxValue;    // behind the map record (as it stood before this race)
     }
 
+    /// <summary>One player's numbers from a single race, for the results screen highlights.</summary>
+    public class RaceHighlight
+    {
+        public int Slot;
+        public string Name;
+        public float TopSpeed;      // km/h
+        public float LongestJump;   // seconds
+        public int Hits;            // car-to-car hits
+        public int Knockouts;
+        public int Cats;
+        public int Crashes;
+        public int WheelsLost;
+        public int Rams;            // rammed others
+    }
+
     public class RaceSummary
     {
+        public string LevelKey;
         public string LevelName;
         public int TotalCheckpoints;
         public string PreviousRecordName;              // record holder before this race (null if none)
@@ -32,6 +48,8 @@ namespace CouchParty
         public List<RaceLine> Lines = new List<RaceLine>();
         public List<BestTime> AllTime = new List<BestTime>();   // best per player
         public List<RunRecord> AllRuns = new List<RunRecord>(); // fastest runs overall
+        public List<RaceHighlight> Highlights = new List<RaceHighlight>(); // filled by the stats tracker
+        public List<string> Moments = new List<string>();                  // "Alice knocked out Bob", ...
     }
 
     /// <summary>Reads and writes the game's local-player state.</summary>
@@ -276,6 +294,7 @@ namespace CouchParty
 
             var summary = new RaceSummary
             {
+                LevelKey = key,
                 LevelName = records.LevelName,
                 TotalCheckpoints = totalCheckpoints,
                 PreviousRecordName = previousBest != null ? Store.DisplayName(previousBest) : null,

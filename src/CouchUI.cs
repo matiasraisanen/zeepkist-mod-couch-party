@@ -10,7 +10,7 @@ namespace CouchParty
     /// <summary>All Couch Party on-screen UI, drawn with Unity's immediate-mode GUI.</summary>
     public class CouchUI : MonoBehaviour
     {
-        public enum Tab { Players, Profiles, Leaderboard, Stats, Fame, Backups, Sync }
+        public enum Tab { Players, Profiles, Leaderboard, Stats, Fame, Tonight, Backups, Sync }
 
         public static CouchUI Instance { get; private set; }
 
@@ -205,7 +205,12 @@ namespace CouchParty
             bool inGame = InGameScene;
             if (!inGame) { _popupUntil = 0; _recordUntil = 0; _results = null; }
 
-            if (_results != null) DrawResults(vw, vh);
+            if (_results != null)
+            {
+                DrawResults(vw, vh);
+                try { DrawSidePanel(vw, vh); }
+                catch (Exception e) { Plugin.Debug("Side panel failed: " + e.Message); }
+            }
             if (Time.unscaledTime < _recordUntil) DrawRecord(vw);
             else if (_results == null && PopupVisible) DrawPreRace(vw);
 
@@ -213,6 +218,7 @@ namespace CouchParty
             {
                 _windowRect.width = Mathf.Min(_windowRect.width, vw - 20);
                 _windowRect.height = Mathf.Min(_windowRect.height, vh - 20);
+                DrawOutline(_windowRect, 4f);
                 _windowRect = GUI.Window(WindowId, _windowRect, DrawWindow, "", _panel);
                 _windowRect.x = Mathf.Clamp(_windowRect.x, 0, vw - _windowRect.width);
                 _windowRect.y = Mathf.Clamp(_windowRect.y, 0, vh - _windowRect.height);
@@ -254,6 +260,7 @@ namespace CouchParty
             TabButton("Leaderboard", Tab.Leaderboard);
             TabButton("Stats", Tab.Stats);
             TabButton("Hall of Fame", Tab.Fame);
+            TabButton("Tonight", Tab.Tonight);
             GUILayout.EndHorizontal();
             GUILayout.Space(8);
 
@@ -265,6 +272,7 @@ namespace CouchParty
                 case Tab.Leaderboard: DrawLeaderboardTab(); break;
                 case Tab.Stats: DrawStatsTab(); break;
                 case Tab.Fame: DrawFameTab(); break;
+                case Tab.Tonight: DrawTonightTab(); break;
                 case Tab.Backups: DrawBackupsTab(); break;
                 case Tab.Sync: DrawSyncTab(); break;
             }
@@ -783,24 +791,27 @@ namespace CouchParty
             GUILayout.Space(8);
 
             // Groups of (label, value) rows, laid out in 3 columns on a wide window (fits 16:9 without scrolling), else 2.
-            var racing = new (string, object)[] { ("Races", st.Races), ("Wins", st.Wins), ("Finishes", st.Finishes), ("DNFs", st.Dnfs), ("Shortcut tries", st.Shortcuts) };
+            var racing = new (string, object)[] { ("Races", st.Races), ("Wins", st.Wins), ("DNFs", st.Dnfs) };
+            // Every kind of finish in one place: valid finishes with their special cases indented, then shortcuts.
+            var finishes = new (string, object)[] { ("Finishes", st.Finishes), ("   3-wheel", st.ThreeWheelFinishes), ("   2-wheel", st.TwoWheelFinishes), ("   1-wheel", st.OneWheelFinishes), ("   no-wheel", st.ZeroWheelFinishes), ("   on foot", st.OnFootFinishes), ("   reverse", st.ReverseFinishes), ("Shortcut finishes", st.ShortcutFinishes) };
             var records = new (string, object)[] { ("Map records held", RecordsHeld(selected)), ("Records broken", st.RecordsBroken), ("Personal bests", st.PersonalBests), ("Time on the clock", Game.FormatDuration(st.FinishTimeSeconds)) };
-            var carnage = new (string, object)[] { ("Crashes", st.Crashes), ("   hard crashes", st.HardCrashes), ("   ejects", st.Ejects), ("   timeouts", st.Timeouts), ("Wheels lost", st.WheelsLost), ("3-wheel finishes", st.ThreeWheelFinishes), ("2-wheel finishes", st.TwoWheelFinishes), ("1-wheel finishes", st.OneWheelFinishes), ("No-wheel finishes", st.ZeroWheelFinishes), ("On foot finishes", st.OnFootFinishes) };
+            var carnage = new (string, object)[] { ("Crashes", st.Crashes), ("   hard crashes", st.HardCrashes), ("   ejects", st.Ejects), ("   timeouts", st.Timeouts), ("Wheels lost", st.WheelsLost) };
             var driving = new (string, object)[] { ("Distance driven", Km(st.DistanceMeters)), ("Distance per race", Km(st.Races > 0 ? st.DistanceMeters / st.Races : 0)), ("Top speed", $"{st.TopSpeedKmh:0} km/h"), ("Air time", AirTime(st.AirSeconds)), ("Longest jump", $"{st.LongestJumpSeconds:0.0} s"), ("Big jumps (1 s+)", st.BigJumps) };
             var bumper = new (string, object)[] { ("Car-to-car hits", st.CarToCarHits), ("Rammed others", st.RammedOthers), ("Got rammed", st.GotRammed), ("Knockouts", st.Knockouts), ("Wheels knocked off", st.WheelsKnockedOff) };
             var cats = new (string, object)[] { ("Cats hugged", st.CatsHugged), ("Crashes caused by cats", st.CatCrashes) };
+            var stunts = new (string, object)[] { ("Front flips", st.FrontFlips), ("Backflips", st.Backflips), ("Barrel rolls", st.BarrelRolls), ("180s", st.Spins180), ("360s", st.Spins360), ("720s", st.Spins720), ("1080s", st.Spins1080), ("Biggest spin", st.BiggestSpin > 0 ? $"{st.BiggestSpin}°" : NoValue) };
 
             var columns = Wide
                 ? new[]
                 {
-                    new[] { ("Racing", racing), ("Records", records) },
-                    new[] { ("Carnage", carnage), ("Cats", cats) },
-                    new[] { ("Driving", driving), ("Bumper cars", bumper) },
+                    new[] { ("Racing", racing), ("Finishes", finishes), ("Records", records) },
+                    new[] { ("Carnage", carnage), ("Bumper cars", bumper), ("Cats", cats) },
+                    new[] { ("Driving", driving), ("Stunts", stunts) },
                 }
                 : new[]
                 {
-                    new[] { ("Racing", racing), ("Records", records), ("Bumper cars", bumper), ("Cats", cats) },
-                    new[] { ("Carnage", carnage), ("Driving", driving) },
+                    new[] { ("Racing", racing), ("Finishes", finishes), ("Records", records), ("Carnage", carnage) },
+                    new[] { ("Bumper cars", bumper), ("Cats", cats), ("Driving", driving), ("Stunts", stunts) },
                 };
             float col = (_windowRect.width - 70 - (columns.Length - 1) * 20) / columns.Length;
             GUILayout.BeginHorizontal();
@@ -810,7 +821,7 @@ namespace CouchParty
                 GUILayout.BeginVertical(GUILayout.Width(col));
                 for (int g = 0; g < columns[c].Length; g++)
                 {
-                    if (g > 0) GUILayout.Space(8);
+                    if (g > 0) GUILayout.Space(18); // a clear gap before each group header
                     StatGroup(columns[c][g].Item1);
                     foreach (var (label, value) in columns[c][g].Item2) StatRow(label, value);
                 }
@@ -881,6 +892,10 @@ namespace CouchParty
                 ("Road tripper", "Longest total distance driven", p => p.Stats.DistanceMeters, v => Km(v)),
                 ("Frequent flyer", "Most total time in the air", p => p.Stats.AirSeconds, v => AirTime(v)),
                 ("Moon landing", "Longest single jump", p => p.Stats.LongestJumpSeconds, v => $"{v:0.0} s"),
+                ("Acrobat", "Most flips landed (front flips and backflips, without crashing)", p => p.Stats.FrontFlips + p.Stats.Backflips, v => $"{v:0} flips"),
+                ("Corkscrew", "Most barrel rolls landed (without crashing)", p => p.Stats.BarrelRolls, v => $"{v:0} rolls"),
+                ("Spin doctor", "Biggest flat spin landed, in exact degrees", p => p.Stats.BiggestSpin, v => $"{v:0}°"),
+                ("Moonwalker", "Most finishes crossing the line backwards", p => p.Stats.ReverseFinishes, v => $"{v:0} reverse finishes"),
                 ("Crash king", "Most hard crashes (actually hit something)", p => p.Stats.HardCrashes, v => $"{v:0} crashes"),
                 ("Ejector seat", "Ejected the most", p => p.Stats.Ejects, v => $"{v:0} ejects"),
                 ("Snail", "Timed out the most (too slow for 10 seconds)", p => p.Stats.Timeouts, v => $"{v:0} timeouts"),
@@ -888,9 +903,9 @@ namespace CouchParty
                 ("Limping home", "Most finishes with wheels missing", p => p.Stats.DamagedFinishes, v => $"{v:0} finishes"),
                 ("No-wheel hero", "Most finishes with no wheels left", p => p.Stats.ZeroWheelFinishes, v => $"{v:0} finishes"),
                 ("Stuntman", "Most finishes on foot, after ejecting from the car", p => p.Stats.OnFootFinishes, v => $"{v:0} on foot finishes"),
-                ("Shortcut hunter", "Crossed the finish but missed checkpoints most often", p => p.Stats.Shortcuts, v => $"{v:0} tries"),
+                ("Shortcut hunter", "Crossed the finish but missed checkpoints most often", p => p.Stats.ShortcutFinishes, v => $"{v:0} shortcut finishes"),
                 ("Bumper car champ", "Rammed other racers the most", p => p.Stats.RammedOthers, v => $"{v:0} rams"),
-                ("Demolition derby", "Most knockouts: a racer crashed or didn't finish soon after a car-to-car hit with them", p => p.Stats.Knockouts, v => $"{v:0} knockouts"),
+                ("Demolition derby", "Most knockouts: rammed another racer who then crashed soon after", p => p.Stats.Knockouts, v => $"{v:0} knockouts"),
                 ("Wheel snatcher", "Knocked the most wheels off other racers", p => p.Stats.WheelsKnockedOff, v => $"{v:0} wheels"),
                 ("Punching bag", "Got rammed by other racers the most", p => p.Stats.GotRammed, v => $"{v:0} times"),
                 ("Cat lover", "Hugged the most walking cats (with their car)", p => p.Stats.CatsHugged, v => $"{v:0} cats"),
@@ -930,6 +945,76 @@ namespace CouchParty
         }
 
         private static string Medal(int place) => place == 0 ? "1st" : place == 1 ? "2nd" : "3rd";
+
+        // ---------------- Tonight tab ----------------
+
+        private bool _confirmNewEvening;
+
+        private void DrawTonightTab()
+        {
+            var data = Session.Current;
+            int maps = Session.MapsTonight;
+            GUILayout.Label($"Started {data.Started:t}  |  {maps} map{(maps == 1 ? "" : "s")}  |  {Session.RunsTonight} runs. " +
+                            $"A new evening starts after {Plugin.SessionResetHours.Value} hours without racing.", _small);
+            GUILayout.Space(6);
+
+            // Standings
+            GUILayout.Label("Standings", _groupHeader);
+            var standings = Session.Standings();
+            if (standings.Count == 0) GUILayout.Label("Nobody with a profile has raced yet tonight.", _dim);
+            else
+            {
+                TonightRow(true, "", "Fastest on", "PBs", "Records", "Crashes", "Hits", "Races");
+                for (int i = 0; i < standings.Count; i++)
+                {
+                    var s = standings[i];
+                    TonightRow(false, s.Name, s.BestTimes.ToString(), s.Stats.PersonalBests.ToString(), s.Stats.Records.ToString(),
+                               s.Stats.Crashes.ToString(), s.Stats.Hits.ToString(), s.Stats.Races.ToString(), i == 0 && s.BestTimes > 0);
+                }
+            }
+            GUILayout.Space(12);
+
+            // Every map tonight, newest first
+            GUILayout.Label("Tonight's maps", _groupHeader);
+            var list = Session.MapsNewestFirst();
+            if (list.Count == 0) GUILayout.Label("No maps raced yet tonight.", _dim);
+            foreach (var (key, map) in list)
+            {
+                GUILayout.BeginHorizontal(_row);
+                GUILayout.Label(map.LevelName ?? "Unknown map", _label, GUILayout.Width(_windowRect.width * 0.38f));
+                if (map.Best.Count > 0)
+                {
+                    var best = map.Best.OrderBy(kv => kv.Value).First();
+                    GUILayout.Label(Session.NameOf(best.Key), _gold, GUILayout.Width(_windowRect.width * 0.22f));
+                    GUILayout.Label(Game.FormatTime(best.Value), _gold, GUILayout.Width(140));
+                }
+                else GUILayout.Label("no valid times", _dim, GUILayout.Width(_windowRect.width * 0.22f + 140));
+                GUILayout.FlexibleSpace();
+                GUILayout.Label($"{map.Runs} run{(map.Runs == 1 ? "" : "s")}", _small, GUILayout.Width(90));
+                GUILayout.EndHorizontal();
+            }
+
+            GUILayout.Space(12);
+            if (_confirmNewEvening)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("Start a new evening? Tonight's standings and maps are cleared (records and stats are kept).", _label);
+                if (GUILayout.Button("Yes", _button, GUILayout.Width(90))) { Session.Reset(); _confirmNewEvening = false; }
+                if (GUILayout.Button("No", _button, GUILayout.Width(60))) _confirmNewEvening = false;
+                GUILayout.EndHorizontal();
+            }
+            else if (GUILayout.Button("Start a new evening", _button, GUILayout.Width(260))) _confirmNewEvening = true;
+        }
+
+        private void TonightRow(bool header, string name, string a, string b, string c, string d, string e, string f, bool leader = false)
+        {
+            var style = header ? _small : leader ? _gold : _label;
+            GUILayout.BeginHorizontal(header ? GUIStyle.none : _row);
+            GUILayout.Label(name, style, GUILayout.Width(_windowRect.width * 0.28f));
+            foreach (var v in new[] { a, b, c, d, e, f })
+                GUILayout.Label(v, header ? _small : (leader && v == a ? _gold : _label), GUILayout.Width(_windowRect.width * 0.105f));
+            GUILayout.EndHorizontal();
+        }
 
         // ---------------- Leaderboard tab ----------------
 
@@ -1056,32 +1141,36 @@ namespace CouchParty
         {
             TryLoadGameFont();
             var area = Rect.MinMaxRect(vw * GameColumnLeft, vh * GameColumnTop, vw * GameColumnRight, vh * GameColumnBottom);
-
             GUI.DrawTexture(area, _texBody);
 
-            var titleRect = new Rect(area.x, area.y, area.width, 60);
-            GUI.DrawTexture(titleRect, _texTitleBand);
-            ShadowLabel(titleRect, "Race Results", _ovTitle);
-
+            // Left side = everything about this map: this race's results, the map's records, tonight's grind on it.
             var recordLine = _results.Lines.FirstOrDefault(l => l.NewMapRecord);
             bool showRecordBand = recordLine != null && _results.PreviousRecordTime < float.MaxValue;
-
+            var grind = Session.MapStandings(_results.LevelKey, out int mapRuns);
             int lines = _results.Lines.Count;
-            int topCount = Plugin.ResultsTopCount.Value;
-            int top = Mathf.Min(topCount, _resultsAllRuns ? _results.AllRuns.Count : _results.AllTime.Count);
+            int available = _resultsAllRuns ? _results.AllRuns.Count : _results.AllTime.Count;
 
-            float y = titleRect.yMax;
-            const float sectionH = 40, bandH = 40;
-            float remaining = area.yMax - y - sectionH - (showRecordBand ? bandH : 0);
-            float raceRowH = Mathf.Clamp(remaining / Mathf.Max(1, lines + Mathf.Max(1, top)), 26, 44);
-            float recordRowH = Mathf.Clamp((remaining - lines * raceRowH) / Mathf.Max(1, top), 24, 44);
+            const float titleH = 60, bannerH = 38, gapH = 10, recHeadH = 42, grindBandH = 36, grindHeadH = 20, minRow = 24, maxRow = 36;
+            float fixedH = titleH + (showRecordBand ? bannerH : 0) + gapH + recHeadH + (grind.Count > 0 ? gapH + grindBandH + grindHeadH : 0);
+            float space = area.height - fixedH;
+            // As many records as fit (up to the setting), keeping rows readable.
+            int top = Mathf.Min(Plugin.ResultsTopCount.Value, available);
+            while (top > 1 && (lines + top + grind.Count) * minRow > space) top--;
+            float rowH = Mathf.Clamp(space / Mathf.Max(1, lines + Mathf.Max(1, top) + grind.Count), minRow, maxRow);
+            bool compact = rowH < 34;
 
-            // This race.
+            float y = area.y;
+            var titleRect = new Rect(area.x, y, area.width, titleH);
+            GUI.DrawTexture(titleRect, _texTitleBand);
+            ShadowLabel(titleRect, "Race Results", _ovTitle);
+            y += titleH;
+
+            // ---- This race
             int pos = 0;
             for (int i = 0; i < lines; i++)
             {
                 var line = _results.Lines[i];
-                var row = new Rect(area.x, y, area.width, raceRowH);
+                var row = new Rect(area.x, y, area.width, rowH);
                 GUI.DrawTexture(row, i % 2 == 0 ? _texRowA : _texRowB);
                 string rank = line.Finished ? $"#{++pos}" : "";
                 string tag;
@@ -1093,37 +1182,41 @@ namespace CouchParty
                 else if (line.Finished && line.GapToRecord < float.MaxValue) tag = $"+{line.GapToRecord:0.000} to record";
                 else tag = "";
                 DrawRow(row, rank, line.Name, line.CrossedFinish ? Game.FormatTime(line.Time) : "DNF", tag, tagStyle,
-                    line.Finished ? _ovTime : _ovTimeDim);
-                y += raceRowH;
+                    line.Finished ? (compact ? _ovTimeS : _ovTime) : _ovTimeDim, compact);
+                y += rowH;
             }
 
             // "X beat Y's record by Z s"
             if (showRecordBand)
             {
-                var band = new Rect(area.x, y, area.width, bandH);
+                var band = new Rect(area.x, y, area.width, bannerH);
                 GUI.DrawTexture(band, _texHeader);
                 float gain = _results.PreviousRecordTime - recordLine.Time;
                 string text = _results.PreviousRecordName == recordLine.Name
                     ? $"{recordLine.Name} beat their own record by {gain:0.000} s"
                     : $"{recordLine.Name} beat {_results.PreviousRecordName}'s {Game.FormatTime(_results.PreviousRecordTime)} by {gain:0.000} s";
                 ShadowLabel(band, text, _ovBand);
-                y += bandH;
+                y += bannerH;
             }
+            y += gapH;
 
-            // Map records: best per player (default) or all runs. Click the header or press F9 to switch.
-            var sectionRect = new Rect(area.x, y, area.width, sectionH);
+            // ---- Map records: best per player (default) or all runs. Click the header or press F9 to switch.
+            var sectionRect = new Rect(area.x, y, area.width, recHeadH);
             GUI.DrawTexture(sectionRect, _texTitleBand);
             string view = _resultsAllRuns ? "all runs" : "best per player";
-            ShadowLabel(sectionRect, $"Map Records: {view}", _ovSection);
-            ShadowLabel(new Rect(sectionRect.x, sectionRect.y, sectionRect.width - 12, sectionH), $"{Plugin.ShowRecordsKey.Value}: switch", _ovTagDim);
+            ShadowLabel(sectionRect, $"Map Records: {view}", _ovTitleMid);
+            ShadowLabel(new Rect(sectionRect.x, sectionRect.y, sectionRect.width - 12, recHeadH), $"{Plugin.ShowRecordsKey.Value}: switch", _ovTagDim);
             if (GUI.Button(sectionRect, GUIContent.none, GUIStyle.none)) _resultsAllRuns = !_resultsAllRuns;
-            y = sectionRect.yMax;
+            y += recHeadH;
 
-            if (top == 0) ShadowLabel(new Rect(area.x, y, area.width, 44), "No valid times yet", _ovCenter);
-            for (int i = 0; i < top; i++)
+            if (available == 0)
             {
-                var row = new Rect(area.x, y, area.width, recordRowH);
-                if (row.yMax > area.yMax + 1) break;
+                ShadowLabel(new Rect(area.x, y, area.width, rowH), "No valid times yet", _ovCenter);
+                y += rowH;
+            }
+            for (int i = 0; i < Mathf.Min(top, available); i++)
+            {
+                var row = new Rect(area.x, y, area.width, rowH);
                 GUI.DrawTexture(row, i % 2 == 0 ? _texRowB : _texRowA);
                 string name; float time; bool fresh;
                 if (_resultsAllRuns)
@@ -1138,19 +1231,161 @@ namespace CouchParty
                     name = Store.DisplayName(b); time = b.Time;
                     fresh = (DateTime.Now - b.Date).TotalMinutes < 2;
                 }
-                DrawRow(row, $"{i + 1}.", name, Game.FormatTime(time), fresh ? "new!" : "", _ovTagGold, i == 0 ? _ovTime : _ovTimeSmall);
-                y += recordRowH;
+                DrawRow(row, $"{i + 1}.", name, Game.FormatTime(time), fresh ? "new!" : "", _ovTagGold,
+                    compact ? _ovTimeS : (i == 0 ? _ovTime : _ovTimeSmall), compact);
+                y += rowH;
+            }
+
+            // ---- This map tonight: the grind
+            if (grind.Count == 0) return;
+            y += gapH;
+            y = Band(area, y, grindBandH, "This map tonight", $"{mapRuns} run{(mapRuns == 1 ? "" : "s")}", _ovSectionS);
+            y = TableHeader(area, y, grindHeadH, new[] { "Best tonight", "Gap", "Runs", "Crashes" });
+            for (int i = 0; i < grind.Count; i++)
+            {
+                var g = grind[i];
+                var row = new Rect(area.x, y, area.width, rowH);
+                if (row.yMax > area.yMax + 1) break;
+                GUI.DrawTexture(row, i % 2 == 0 ? _texRowB : _texRowA);
+                bool leader = i == 0 && g.Best < float.MaxValue;
+                TableRow(row, g.Name, leader ? _ovSmallGold : _ovSmall,
+                    Cell(g.Best < float.MaxValue ? Game.FormatTime(g.Best) : NoValue, leader),
+                    Cell(g.Gap < float.MaxValue && g.Gap > 0 ? $"+{g.Gap:0.000}" : NoValue, false),
+                    Cell(g.Runs.ToString(), false),
+                    Cell(g.Crashes.ToString(), false));
+                y += rowH;
             }
         }
 
-        private void DrawRow(Rect row, string rank, string name, string time, string tag, GUIStyle tagStyle, GUIStyle timeStyle)
+        // ---------------- Results screen: right panel (replaces the game's Championship points) ----------------
+
+        // The game's "Championship" column, as fractions of the screen (same on 16:9 and 21:9).
+        private const float ChampLeft = 0.5815f;   // just right of the divider
+        private const float ChampRight = 0.900f;   // right edge of the results panel
+
+        private void DrawSidePanel(float vw, float vh)
+        {
+            var area = Rect.MinMaxRect(vw * ChampLeft, vh * GameColumnTop, vw * ChampRight, vh * GameColumnBottom);
+            GUI.DrawTexture(area, _texBody);
+
+            // Right side = this race and the evening.
+            var highlights = _results.Highlights;
+            var moments = _results.Moments;
+            var standings = Session.Standings();
+
+            const float bandH = 40, headH = 24, gapH = 10;
+            float fixedH = bandH * 2 + headH * 2 + gapH;
+            float units = highlights.Count + standings.Count + moments.Count * 0.8f;
+            float rowH = Mathf.Clamp((area.height - fixedH) / Mathf.Max(1f, units), 22, 38);
+            float y = area.y;
+
+            // ---- This race
+            y = Band(area, y, bandH, "This race", null, _ovSection);
+            y = TableHeader(area, y, headH, new[] { "km/h", "Jump", "Hits", "KOs", "Wheels", "Cats" });
+            float bestSpeed = highlights.Count > 0 ? highlights.Max(h => h.TopSpeed) : 0;
+            float bestJump = highlights.Count > 0 ? highlights.Max(h => h.LongestJump) : 0;
+            int bestHits = highlights.Count > 0 ? highlights.Max(h => h.Hits) : 0;
+            int bestKos = highlights.Count > 0 ? highlights.Max(h => h.Knockouts) : 0;
+            int mostWheels = highlights.Count > 0 ? highlights.Max(h => h.WheelsLost) : 0;
+            int bestCats = highlights.Count > 0 ? highlights.Max(h => h.Cats) : 0;
+            for (int i = 0; i < highlights.Count; i++)
+            {
+                var h = highlights[i];
+                var row = new Rect(area.x, y, area.width, rowH);
+                GUI.DrawTexture(row, i % 2 == 0 ? _texRowA : _texRowB);
+                TableRow(row, h.Name, _ovSmall,
+                    Cell(h.TopSpeed > 0 ? $"{h.TopSpeed:0}" : NoValue, h.TopSpeed > 0 && h.TopSpeed >= bestSpeed),
+                    Cell(h.LongestJump >= 0.3f ? $"{h.LongestJump:0.0} s" : NoValue, h.LongestJump >= 0.3f && h.LongestJump >= bestJump),
+                    Cell(h.Hits > 0 ? h.Hits.ToString() : NoValue, h.Hits > 0 && h.Hits >= bestHits),
+                    Cell(h.Knockouts > 0 ? h.Knockouts.ToString() : NoValue, h.Knockouts > 0 && h.Knockouts >= bestKos),
+                    Cell(h.WheelsLost > 0 ? $"-{h.WheelsLost}" : NoValue, h.WheelsLost > 0 && h.WheelsLost >= mostWheels), // "-2" = two wheels lost
+                    Cell(h.Cats > 0 ? h.Cats.ToString() : NoValue, h.Cats > 0 && h.Cats >= bestCats));
+                y += rowH;
+            }
+            foreach (var m in moments)
+            {
+                float mh = rowH * 0.8f;
+                ShadowLabel(new Rect(area.x + 16, y, area.width - 32, mh), m, _ovMoment);
+                y += mh;
+            }
+            y += gapH;
+
+            // ---- Tonight: the evening's standings
+            int maps = Session.MapsTonight;
+            y = Band(area, y, bandH, "Tonight", $"{maps} map{(maps == 1 ? "" : "s")}, {Session.RunsTonight} runs", _ovSection);
+            y = TableHeader(area, y, headH, new[] { "Fastest on", "PBs", "Records", "Crashes", "Hits" });
+            for (int i = 0; i < standings.Count; i++)
+            {
+                var s = standings[i];
+                var row = new Rect(area.x, y, area.width, rowH);
+                if (row.yMax > area.yMax + 1) break;
+                GUI.DrawTexture(row, i % 2 == 0 ? _texRowA : _texRowB);
+                bool leader = i == 0 && s.BestTimes > 0;
+                TableRow(row, s.Name, leader ? _ovSmallGold : _ovSmall,
+                    Cell(s.BestTimes.ToString(), leader),
+                    Cell(s.Stats.PersonalBests.ToString(), false),
+                    Cell(s.Stats.Records.ToString(), false),
+                    Cell(s.Stats.Crashes.ToString(), false),
+                    Cell(s.Stats.Hits.ToString(), false));
+                y += rowH;
+            }
+            if (standings.Count == 0) ShadowLabel(new Rect(area.x, y, area.width, rowH), "Nobody with a profile has raced yet tonight", _ovCenter);
+        }
+
+        private float Band(Rect area, float y, float h, string title, string side, GUIStyle titleStyle)
+        {
+            var band = new Rect(area.x, y, area.width, h);
+            GUI.DrawTexture(band, _texTitleBand);
+            ShadowLabel(band, title, titleStyle);
+            if (side != null) ShadowLabel(new Rect(band.x, band.y, band.width - 12, h), side, _ovTagDim);
+            return y + h;
+        }
+
+        /// <summary>En dash for "nothing here", so it can't be mistaken for a minus sign (e.g. "-2" wheels lost).</summary>
+        private const string NoValue = "\u2013";
+
+        private struct CellValue { public string Text; public bool Best; }
+        private static CellValue Cell(string text, bool best) => new CellValue { Text = text, Best = best };
+
+        // Name column takes ~32% of the width; the five value columns share the rest.
+        private const float NameColumn = 0.32f;
+
+        private float TableHeader(Rect area, float y, float h, string[] columns)
+        {
+            float colW = area.width * (1 - NameColumn) / columns.Length;
+            for (int c = 0; c < columns.Length; c++)
+                ShadowLabel(new Rect(area.x + area.width * NameColumn + c * colW, y, colW, h), columns[c], _ovColHead);
+            return y + h;
+        }
+
+        private void TableRow(Rect row, string name, GUIStyle nameStyle, params CellValue[] cells)
+        {
+            ShadowLabel(new Rect(row.x + 16, row.y, row.width * NameColumn - 16, row.height), name, nameStyle);
+            float colW = row.width * (1 - NameColumn) / cells.Length;
+            for (int c = 0; c < cells.Length; c++)
+                ShadowLabel(new Rect(row.x + row.width * NameColumn + c * colW, row.y, colW, row.height), cells[c].Text,
+                    cells[c].Best ? _ovCellGold : _ovCell);
+        }
+
+        private void DrawRow(Rect row, string rank, string name, string time, string tag, GUIStyle tagStyle, GUIStyle timeStyle, bool compact = false)
         {
             float h = row.height;
-            ShadowLabel(new Rect(row.x + 16, row.y, 70, h), rank, _ovRank);
-            ShadowLabel(new Rect(row.x + 90, row.y, row.width * 0.42f, h), name, _ovName);
+            ShadowLabel(new Rect(row.x + 16, row.y, 70, h), rank, compact ? _ovRankS : _ovRank);
+            ShadowLabel(new Rect(row.x + 90, row.y, row.width * 0.42f, h), name, compact ? _ovNameS : _ovName);
             ShadowLabel(new Rect(row.x + row.width * 0.47f, row.y, row.width * 0.22f, h), time, timeStyle);
             if (!string.IsNullOrEmpty(tag))
                 ShadowLabel(new Rect(row.x + row.width * 0.70f, row.y, row.width * 0.29f, h), tag, tagStyle);
+        }
+
+        /// <summary>A solid black frame just outside a rectangle (makes the F8 window stand out from the game).</summary>
+        private void DrawOutline(Rect r, float t)
+        {
+            // Soft shadow down and to the right, so the window floats above the game.
+            GUI.DrawTexture(new Rect(r.x + 10, r.y + 10, r.width + t, r.height + t), _texShadow);
+            GUI.DrawTexture(new Rect(r.x - t, r.y - t, r.width + 2 * t, t), _texBlack);  // top
+            GUI.DrawTexture(new Rect(r.x - t, r.yMax, r.width + 2 * t, t), _texBlack);   // bottom
+            GUI.DrawTexture(new Rect(r.x - t, r.y, t, r.height), _texBlack);             // left
+            GUI.DrawTexture(new Rect(r.xMax, r.y, t, r.height), _texBlack);              // right
         }
 
         private static void ShadowLabel(Rect rect, string text, GUIStyle style)
@@ -1240,16 +1475,17 @@ namespace CouchParty
 
         // Colours taken from the game's results screen.
         private static readonly Color HeaderRed = new Color(0.545f, 0f, 0f, 1f);
-        private static readonly Color WindowRed = new Color(0.38f, 0.04f, 0.04f, 0.97f);
-        private static readonly Color Salmon = new Color(1f, 0.43f, 0.42f, 0.97f);
-        private static readonly Color RowA = new Color(0.95f, 0.45f, 0.35f, 0.97f);
-        private static readonly Color RowB = new Color(1f, 0.58f, 0.36f, 0.97f);
+        private static readonly Color WindowRed = new Color(0.38f, 0.04f, 0.04f, 1f);
+        private static readonly Color Salmon = new Color(1f, 0.43f, 0.42f, 1f);
+        private static readonly Color RowA = new Color(0.95f, 0.45f, 0.35f, 1f);
+        private static readonly Color RowB = new Color(1f, 0.58f, 0.36f, 1f);
         private static readonly Color TimeYellow = new Color(1f, 0.9f, 0.2f, 1f);
         private static readonly Color ButtonMuted = new Color(0.69f, 0.33f, 0.33f, 1f);
         private static readonly Color ButtonOrange = new Color(1f, 0.55f, 0f, 1f);
 
-        private Texture2D _texBody, _texTitleBand, _texRowA, _texRowB, _texHeader, _texAccent, _texBarBack;
-        private GUIStyle _groupHeader, _statValue, _barLabel, _ovBand;
+        private Texture2D _texBody, _texTitleBand, _texRowA, _texRowB, _texHeader, _texAccent, _texBarBack, _texBlack, _texShadow;
+        private GUIStyle _groupHeader, _statValue, _barLabel, _ovBand, _ovSmall, _ovSmallGold, _ovCell, _ovCellGold, _ovColHead, _ovMoment,
+            _ovRankS, _ovNameS, _ovTimeS, _ovTitleMid, _ovSectionS;
         private GUIStyle[] _medals;
         private GUIStyle _ovTitle, _ovSection, _ovRank, _ovName, _ovTime, _ovTimeSmall, _ovTimeDim, _ovTagGold, _ovTagGreen, _ovTagDim,
             _ovHeaderLeft, _ovHeaderRight, _ovHeaderRecord, _ovCenter;
@@ -1279,7 +1515,9 @@ namespace CouchParty
             catch { _gameFont = null; }
             Plugin.Debug(_gameFont != null ? $"Using game font '{_gameFont.name}' for overlays." : "Game font not available; using default font.");
             if (_gameFont != null)
-                foreach (var s in new[] { _ovTitle, _ovSection, _ovRank, _ovName, _ovTime, _ovTimeSmall, _ovTimeDim, _ovTagGold, _ovTagGreen, _ovTagDim, _ovHeaderLeft, _ovHeaderRight, _ovHeaderRecord, _ovCenter, _ovBand })
+                foreach (var s in new[] { _ovTitle, _ovSection, _ovRank, _ovName, _ovTime, _ovTimeSmall, _ovTimeDim, _ovTagGold, _ovTagGreen, _ovTagDim, _ovHeaderLeft, _ovHeaderRight, _ovHeaderRecord, _ovCenter, _ovBand,
+                         _ovSmall, _ovSmallGold, _ovCell, _ovCellGold, _ovColHead, _ovMoment,
+                         _ovRankS, _ovNameS, _ovTimeS, _ovTitleMid, _ovSectionS })
                     s.font = _gameFont;
         }
 
@@ -1288,13 +1526,15 @@ namespace CouchParty
             if (_stylesReady && _panelTex != null) return;
 
             _panelTex = Tex(WindowRed);
-            _texBody = Tex(new Color(0.93f, 0.42f, 0.32f, 0.97f));
+            _texBody = Tex(new Color(0.93f, 0.42f, 0.32f, 1f));
             _texTitleBand = Tex(Salmon);
             _texRowA = Tex(RowA);
             _texRowB = Tex(RowB);
             _texHeader = Tex(HeaderRed);
             _texAccent = Tex(ButtonOrange);
             _texBarBack = Tex(new Color(0.2f, 0.02f, 0.02f, 1f));
+            _texBlack = Tex(Color.black);
+            _texShadow = Tex(new Color(0f, 0f, 0f, 0.45f));
 
             _panel = new GUIStyle(GUI.skin.box) { padding = new RectOffset(22, 22, 16, 16), border = new RectOffset(0, 0, 0, 0) };
             _panel.normal.background = _panelTex;
@@ -1381,6 +1621,24 @@ namespace CouchParty
             _medals = new[] { gold, silver, bronze };
             _ovBand = new GUIStyle(_ovCenter) { fontSize = 22 };
             _ovBand.normal.textColor = TimeYellow;
+
+            // Side panel: a bit smaller than the game's text, still easy to read from the couch.
+            _ovSmall = new GUIStyle(ov) { fontSize = 23 };
+            _ovSmallGold = new GUIStyle(_ovSmall);
+            _ovSmallGold.normal.textColor = TimeYellow;
+            _ovCell = new GUIStyle(ov) { fontSize = 22, alignment = TextAnchor.MiddleCenter };
+            _ovCellGold = new GUIStyle(_ovCell);
+            _ovCellGold.normal.textColor = TimeYellow;
+            _ovColHead = new GUIStyle(ov) { fontSize = 16, fontStyle = FontStyle.Normal, alignment = TextAnchor.MiddleCenter };
+            _ovColHead.normal.textColor = new Color(1f, 0.92f, 0.88f);
+            _ovMoment = new GUIStyle(ov) { fontSize = 20, fontStyle = FontStyle.Italic };
+            // Compact left-side rows (results, records, grind share one column).
+            _ovRankS = new GUIStyle(_ovRank) { fontSize = 22 };
+            _ovNameS = new GUIStyle(_ovName) { fontSize = 22 };
+            _ovTimeS = new GUIStyle(_ovTime) { fontSize = 22 };
+            _ovTitleMid = new GUIStyle(ov) { fontSize = 30, alignment = TextAnchor.MiddleCenter };
+            _ovSectionS = new GUIStyle(ov) { fontSize = 26, alignment = TextAnchor.MiddleCenter };
+            _ovMoment.normal.textColor = new Color(1f, 0.95f, 0.8f);
 
             _stylesReady = true;
         }

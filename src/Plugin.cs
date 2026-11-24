@@ -16,7 +16,7 @@ namespace CouchParty
     {
         public const string Guid = "com.skofdo.couchparty";
         public const string Name = "Couch Party";
-        public const string Version = "1.0.0";
+        public const string Version = "1.0.6";
 
         internal static ManualLogSource Log;
 
@@ -31,6 +31,7 @@ namespace CouchParty
         internal static ConfigEntry<int> PlayerNumberBase;
         internal static ConfigEntry<bool> DebugLogging;
         internal static ConfigEntry<int> MaxBackups;
+        internal static ConfigEntry<int> SessionResetHours;
         internal static ConfigEntry<string> ExtraBackupFolder;
         internal static ConfigEntry<bool> SyncEnabled;
         internal static ConfigEntry<string> SyncUrl;
@@ -59,6 +60,8 @@ namespace CouchParty
             PlayerNumberBase = Config.Bind("Advanced", "Player number base", -1,
                 new ConfigDescription("Whether the game's result player numbers start at 0 or 1. -1 = detect automatically.", new AcceptableValueRange<int>(-1, 1)));
             DebugLogging = Config.Bind("Advanced", "Debug logging", true, "Write extra details to the BepInEx log (useful while testing).");
+            SessionResetHours = Config.Bind("Leaderboard", "New evening after hours", 6,
+                new ConfigDescription("The 'Tonight' standings start over after this many hours without a race.", new AcceptableValueRange<int>(1, 48)));
             MaxBackups = Config.Bind("Backups", "Backups to keep", 30,
                 new ConfigDescription("How many backups to keep (by count, not age). Backups made before a mod update are always kept.", new AcceptableValueRange<int>(5, 500)));
             SyncEnabled = Config.Bind("Sync", "Enabled", true, "Sync profiles, stats and leaderboards with your Couch Party server (needs an address and a key).");
