@@ -2,6 +2,29 @@
 
 Zeepkist's local split-screen calls everyone "Player 1, Player 2…", forgets everything when you quit, and keeps no records. Couch Party fixes that, and adds a few things for bragging rights.
 
+## What it looks like
+
+These are mockups at 1080p with four players. In the game, the background is the game itself. Click an image for the full size.
+
+<table>
+  <tr>
+    <td colspan="2" align="center">
+      <a href="docs/images/results.png"><img src="docs/images/results.png" width="640" alt="Results screen: this race, the map's records, this map tonight, this race's stats and moments, tonight's standings"></a><br>
+      The results screen
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="docs/images/stats.png"><img src="docs/images/stats.png" width="400" alt="F8 window, Stats tab: one player's stats in groups, with All time and Tonight buttons"></a><br>
+      F8 &gt; Stats
+    </td>
+    <td align="center">
+      <a href="docs/images/hall-of-fame.png"><img src="docs/images/hall-of-fame.png" width="400" alt="F8 window, Hall of Fame tab: gold, silver and bronze in every category"></a><br>
+      F8 &gt; Hall of Fame
+    </td>
+  </tr>
+</table>
+
 ## Features
 
 **🪪 Player profiles**
@@ -31,29 +54,6 @@ Zeepkist's local split-screen calls everyone "Player 1, Player 2…", forgets ev
 - A C# BepInEx plugin built on ZeepSDK, with Harmony patches into the game.
 - Everything is stored locally, with nothing online.
 - Press **F8** for the menu, which is styled to match the game.
-
-## What it looks like
-
-These are mockups at 1080p with four players. In the game, the background is the game itself. Click an image for the full size.
-
-<table>
-  <tr>
-    <td colspan="2" align="center">
-      <a href="docs/images/results.png"><img src="docs/images/results.png" width="640" alt="Results screen: this race, the map's records, this map tonight, this race's stats and moments, tonight's standings"></a><br>
-      The results screen
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="docs/images/stats.png"><img src="docs/images/stats.png" width="400" alt="F8 window, Stats tab: one player's stats in groups, with All time and Tonight buttons"></a><br>
-      F8 &gt; Stats
-    </td>
-    <td align="center">
-      <a href="docs/images/hall-of-fame.png"><img src="docs/images/hall-of-fame.png" width="400" alt="F8 window, Hall of Fame tab: gold, silver and bronze in every category"></a><br>
-      F8 &gt; Hall of Fame
-    </td>
-  </tr>
-</table>
 
 ## Install
 
