@@ -56,8 +56,8 @@ Currently the only line is `method PlayerManager.get_Instance`.
 
 **Packaging a release:** `dist/CouchParty-<version>.zip` contains `CouchParty.dll` and `README.md`.
 
-**Version bump** (three places): `Plugin.Version` in `src/Plugin.cs`, `<Version>` in
-`CouchParty.csproj`, and the "Couch Party X loaded" line in the README testing checklist.
+**Version bump** (two places): `Plugin.Version` in `src/Plugin.cs` and `<Version>` in
+`CouchParty.csproj`.
 Data from a newer mod version makes older versions download-only (see Sync), so every syncing PC
 should run the same version.
 

@@ -571,6 +571,80 @@ namespace CouchParty
         private string _syncUrlText, _syncKeyText;
         private bool _confirmForget;
 
+        private bool _secretSelectAll;
+
+        /// <summary>
+        /// A text box that only ever draws '*', for the sync key. Unity's PasswordField showed the key in plain text,
+        /// so this handles the keys itself: type, paste (Ctrl+V), Backspace, Ctrl+A then Backspace / typing / paste
+        /// to replace it all, Enter or Esc to leave the box.
+        /// </summary>
+        private string SecretField(string controlName, string value, int maxLength)
+        {
+            GUI.SetNextControlName(controlName);
+            Rect rect = GUILayoutUtility.GetRect(new GUIContent("*"), _field, GUILayout.ExpandWidth(true));
+            int id = GUIUtility.GetControlID(FocusType.Keyboard, rect);
+            bool focused = GUIUtility.keyboardControl == id;
+            Event e = Event.current;
+
+            switch (e.GetTypeForControl(id))
+            {
+                case EventType.MouseDown:
+                    if (rect.Contains(e.mousePosition))
+                    {
+                        GUIUtility.keyboardControl = id;
+                        _secretSelectAll = false;
+                        e.Use();
+                    }
+                    else if (focused) GUIUtility.keyboardControl = 0;
+                    break;
+
+                case EventType.KeyDown:
+                    if (!focused) break;
+                    bool ctrl = e.control || e.command;
+                    if (ctrl && e.keyCode == KeyCode.A) _secretSelectAll = true;
+                    else if (ctrl && e.keyCode == KeyCode.V)
+                    {
+                        string pasted = new string((GUIUtility.systemCopyBuffer ?? "").Where(c => !char.IsControl(c)).ToArray()).Trim();
+                        value = (_secretSelectAll ? "" : value) + pasted;
+                        _secretSelectAll = false;
+                    }
+                    else if (e.keyCode == KeyCode.Backspace || e.keyCode == KeyCode.Delete)
+                    {
+                        if (_secretSelectAll || ctrl) value = "";
+                        else if (value.Length > 0) value = value.Substring(0, value.Length - 1);
+                        _secretSelectAll = false;
+                    }
+                    else if (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter || e.keyCode == KeyCode.Escape)
+                    {
+                        GUIUtility.keyboardControl = 0;
+                        _secretSelectAll = false;
+                    }
+                    else if (!ctrl && e.character != '\0' && !char.IsControl(e.character))
+                    {
+                        value = (_secretSelectAll ? "" : value) + e.character;
+                        _secretSelectAll = false;
+                    }
+                    else if (e.keyCode == KeyCode.None || ctrl) { /* other shortcuts: swallow */ }
+                    else break; // Tab, arrows: leave to IMGUI
+                    if (value.Length > maxLength) value = value.Substring(0, maxLength);
+                    GUI.changed = true;
+                    e.Use();
+                    break;
+
+                case EventType.Repaint:
+                    var shown = new GUIContent(new string('*', value.Length));
+                    if (focused && _secretSelectAll && value.Length > 0)
+                        _field.DrawWithTextSelection(rect, shown, id, 0, value.Length);
+                    else
+                    {
+                        _field.Draw(rect, shown, id, focused);
+                        if (focused) _field.DrawCursor(rect, shown, id, value.Length);
+                    }
+                    break;
+            }
+            return value;
+        }
+
         private void OpenSyncTab()
         {
             _tab = Tab.Sync;
@@ -592,8 +666,7 @@ namespace CouchParty
             _syncUrlText = GUILayout.TextField(_syncUrlText ?? "", 200, _field);
             GUILayout.Label("e.g. https://your-domain.example/couchparty", _small);
             GUILayout.Label("Key for this PC", _label);
-            GUI.SetNextControlName(SyncKeyControl);
-            _syncKeyText = GUILayout.PasswordField(_syncKeyText ?? "", '*', 200, _field);
+            _syncKeyText = SecretField(SyncKeyControl, _syncKeyText ?? "", 200);
             GUILayout.Space(6);
 
             GUILayout.BeginHorizontal();
@@ -612,6 +685,17 @@ namespace CouchParty
             if (enabled != Plugin.SyncEnabled.Value) Plugin.SyncEnabled.Value = enabled;
             GUILayout.EndHorizontal();
             GUILayout.Space(8);
+
+            // What's typed in the boxes is stored only by Save & sync, and the key shows as stars, so there
+            // is no seeing whether the box still holds the saved one: say so while either box differs.
+            bool urlChanged = (_syncUrlText ?? "").Trim() != (Plugin.SyncUrl.Value ?? "");
+            bool keyChanged = (_syncKeyText ?? "").Trim() != (Plugin.SyncKey.Value ?? "");
+            if (urlChanged || keyChanged)
+            {
+                bool both = urlChanged && keyChanged;
+                GUILayout.Label("Not saved yet: " + (both ? "the server address and the key" : keyChanged ? "the key" : "the server address") +
+                                $". Save & sync stores {(both ? "them" : "it")}; leaving this page drops the change.", _gold);
+            }
 
             // Status
             if (Sync.Busy) GUILayout.Label("Syncing...", _gold);
